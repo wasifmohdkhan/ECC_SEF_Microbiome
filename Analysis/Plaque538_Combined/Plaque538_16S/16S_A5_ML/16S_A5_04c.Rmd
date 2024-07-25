@@ -1,0 +1,164 @@
+---
+title: "box plot for AUROC and AUPRC data"
+output: html_document
+date: "2024-01-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+auroc_auprc_values_16S =  readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A5_ML/auroc_auprc_values_16S.rds"))
+auroc_auprc_values_ITS =  readRDS(here("Analysis/Plaque538_Combined/Plaque538_ITS/ITS_A5_ML/auroc_auprc_values_ITS.rds"))
+auroc_auprc_values_16S_ITS =  readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A5_ML/auroc_auprc_values_16S_ITS.rds"))
+```
+
+```{r}
+auroc_auprc_values_16S_2 = auroc_auprc_values_16S %>% 
+  mutate(Dataset_type = "Bacteria")
+
+auroc_auprc_values_ITS_2 = auroc_auprc_values_ITS %>% 
+  mutate(Dataset_type = "Fungi")
+
+auroc_auprc_values_16S_ITS_2 = auroc_auprc_values_16S_ITS %>% 
+  mutate(Dataset_type = "Combined")
+```
+
+
+# combine data
+```{r}
+auroc_auprc_values_16S_ITS_Combined = rbind(auroc_auprc_values_16S_2,
+                                            auroc_auprc_values_ITS_2,
+                                            auroc_auprc_values_16S_ITS_2)
+auroc_auprc_values_16S_ITS_Combined
+
+auroc_auprc_values_16S_ITS_Combined_2 =  auroc_auprc_values_16S_ITS_Combined %>% 
+  pivot_longer(cols = c(AUROC, AUPRC), 
+  names_to = "Metric", 
+  values_to = "Value") %>% 
+  mutate(Dataset_type = factor(Dataset_type, levels = unique(Dataset_type))) %>% 
+  mutate(Metric = factor(Metric, levels = unique(Metric)))
+auroc_auprc_values_16S_ITS_Combined_2
+
+```
+
+```{r}
+library(ggplot2)
+
+auroc_auprc_values_16S_ITS_Combined_2_ggplot = 
+ggplot(auroc_auprc_values_16S_ITS_Combined_2, aes(x = model_id, y = Value, fill = Dataset_type)) +
+  geom_bar(stat = "identity", position = position_dodge(), alpha = 0.9) +
+  facet_wrap(~ Metric, scales = "free_y") +
+  scale_fill_manual(values = c("orange4", "royalblue4", "black")) +
+  coord_cartesian(ylim = c(0.5, 1)) +  # Adjust y-axis limits with coord_cartesian
+  labs(x = "Classification Model", y = "Value", title = "Comparison of AUROC and AUPRC Values for 16S, ITS, and Combined data") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1,colour = "black", size = 9),
+        text = element_text(colour = "black"),
+    axis.title = element_text(size = 11),
+    # axis.title.y = element_blank(), # Hide the y-axis title
+
+    axis.text.y = element_text(colour = "black", size = 10),
+    axis.ticks.y = element_blank(), # Hide y-axis ticks
+    axis.ticks.x = element_blank(), # Hide x-axis ticks if desired
+    # panel.grid.major = element_blank(), # Remove major grid lines
+    # panel.grid.minor = element_blank(), # Remove minor grid lines
+    panel.background = element_blank(), # Remove panel background
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9),
+    plot.title = element_blank(),
+    legend.position = "bottom",
+    axis.line.x = element_line(color="black"), # Keep x-axis line
+    axis.line.y = element_line(color="black"))
+
+```
+# combine with the vip plot
+
+```{r}
+VIP_df_RF = readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A5_ML/16S_ITS_VIP_RF.rds"))
+
+VIP_df_RF_ggplot <- ggplot(VIP_df_RF, aes(y = Variable, x = Relative_importance)) +
+  geom_bar(stat = "identity", fill = "black", alpha = 0.8) +
+  labs(x = "Relative Variable Importance", y = "Microbial Features", title = "16S_ITS_variable_importance") +
+  scale_y_discrete(labels = function(x) abbreviate(x, minlength = 40)) +
+  theme_bw() +
+    theme(
+    text = element_text(colour = "black"),
+    axis.title = element_text(size = 11),
+    # axis.title.y = element_blank(), # Hide the y-axis title
+    axis.text = element_text(size = 8),
+    axis.text.y = element_text(colour = "black"),
+    axis.ticks.y = element_blank(), # Hide y-axis ticks
+    axis.ticks.x = element_blank(), # Hide x-axis ticks if desired
+    # panel.grid.major = element_blank(), # Remove major grid lines
+    # panel.grid.minor = element_blank(), # Remove minor grid lines
+    panel.background = element_blank(), # Remove panel background
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9),
+    plot.title = element_blank(),
+    legend.position = "bottom",
+    axis.line.x = element_line(color="black"), # Keep x-axis line
+    axis.line.y = element_line(color="black") # 
+  ) 
+VIP_df_RF_ggplot
+```
+```{r}
+# Access the AAAS color palette
+aaas_palette <- ggsci::pal_aaas()(6)  # The number inside the parentheses can be adjusted based on the number of colors you want to retrieve
+aaas_palette
+
+
+# Create a sample dataset
+data <- data.frame(
+  Category = factor(c("A", "B", "C", "D", "E", "F")),
+  Value = c(1, 2, 3, 4, 5, 6)
+)
+
+# Create a bar plot
+ggplot(data, aes(x = Category, y = Value, fill = Category)) +
+  geom_bar(stat = "identity") +
+  ggsci::scale_color_d3() + # Apply AAAS color scale from ggsci
+  theme_minimal() + 
+  labs(title = "AAAS Color Palette", x = "Category", y = "Value") +
+  theme(legend.title = element_blank()) # Remove the legend title
+```
+
+
+```{r}
+# Option 1: Side by side 
+# Combine plots with specified widths
+auroc_auprc_VIP_combined_plot <- free(auroc_auprc_values_16S_ITS_Combined_2_ggplot) + VIP_df_RF_ggplot +
+  plot_layout(widths = c(2, 1)) + # Maintain the relative widths
+  plot_annotation(tag_levels = 'A')
+
+# Apply a consistent gap by adjusting panel spacing
+auroc_auprc_VIP_combined_plot <- auroc_auprc_VIP_combined_plot & 
+  theme(plot.margin = unit(c(1, 1, 1, 1), "lines")) # Adjust as necessary
+auroc_auprc_VIP_combined_plot
+
+
+# Save the combined plot to a file, if needed
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A5_ML/auroc_auprc_VIP_combined_plot.png"),
+       auroc_auprc_VIP_combined_plot,
+       width = 13, height =5.5, dpi = 600)
+
+# Save the combined plot to a file, if needed
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A5_ML/auroc_auprc_VIP_combined_plot.tiff"),
+       auroc_auprc_VIP_combined_plot,
+       width = 13, height =5.5, dpi = 600)
+```
+
+
+
+
+
+
+
+
+
+
+
+

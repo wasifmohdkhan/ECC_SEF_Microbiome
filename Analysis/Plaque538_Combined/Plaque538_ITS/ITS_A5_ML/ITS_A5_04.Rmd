@@ -1,0 +1,378 @@
+---
+title: "ITS ML models comparison and RF vip"
+output: html_document
+date: "2024-01-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+rm(list = ls())
+set.seed(23456)
+```
+
+# To print the start time
+```{r}
+start_time = Sys.time()
+start_time
+```
+
+# Libraries
+
+```{r}
+library(dplyr)
+library(tibble)
+library(ggplot2)
+library(stringr)
+library(pROC) #ggroc
+library(ranger)
+library(SIAMCAT)
+library(mikropml)
+library(progressr)
+
+library(tidymodels)
+library(yardstick)
+library(lightgbm)
+library(bonsai)
+library(dials)
+library(vip)
+library(recipes)
+
+# library(PCAtools) # for the command PCAtools::pca
+# library(mixOmics)
+# library(phyloseq)
+# library(microbiome)
+# library(PLSDAbatch)
+# library(vegan) #varpart
+```
+
+
+# To print the start time
+```{r}
+start_time = Sys.time()
+start_time
+```
+
+
+# for parallelization registeration
+```{r}
+library(foreach)
+library(doParallel)
+
+doFuture::registerDoFuture()
+future::plan(future::multisession, workers = 30)
+```
+
+
+### Import data
+
+```{r}
+Plaque538_ITS_AllOTU_5perc_ps =   readRDS(here("Plaque538_Combined/Plaque538_ITS/Plaque538_ITS_A2_pseq_objects/Plaque538_ITS_AllOTU_5perc_ps_17_vars_240306.Rds"))
+Plaque538_ITS_AllOTU_5perc_ps
+
+## This is a good to remove the bad_empty names eg. "Unknown" also, if required
+## the aggregate_taxa only keeps the names at a particular tax-level eg Species with prerix "g__"
+Plaque538_ITS_Species_ps = 
+  microbiomeMarker::aggregate_taxa( Plaque538_ITS_AllOTU_5perc_ps, level = "Species", verbose = FALSE) %>%
+  phyloseq::tax_glom(
+  .,
+  taxrank = "Species",
+  bad_empty = c(NA, "", " ", "\t", "__") ) 
+Plaque538_ITS_Species_ps
+```
+
+```{r}
+# Extract and modify taxa names
+new_taxa_names_ITS_Species <- gsub("s__", "F_", taxa_names(Plaque538_ITS_Species_ps))
+
+# Update taxa names in-place in the phyloseq object
+taxa_names(Plaque538_ITS_Species_ps) <- new_taxa_names_ITS_Species
+
+# Confirm that the 's__' prefix has been removed
+head(taxa_names(otu_table(Plaque538_ITS_Species_ps)))
+
+```
+### Normalize in Microbiomemarker
+
+```{r}
+## AFter filtering some of the samples have all OTUs 0, hence it is important to add one to mitigate this problem
+Plaque538_ITS_Species_ps_CLR =
+  phyloseq::prune_samples(sample_sums(Plaque538_ITS_Species_ps) != 0, Plaque538_ITS_Species_ps) %>% 
+  microbiomeMarker::normalize (., "CLR")
+
+Plaque538_ITS_Species_ps_CLR
+```
+
+
+```{r}
+pseq = Plaque538_ITS_Species_ps_CLR
+```
+
+# separate OTU and metadata
+
+```{r}
+# Meta
+pseq_ECC_status = sample_data(pseq) %>% 
+  data.frame() %>% 
+  dplyr::select(c(ECC_status)) %>% 
+  mutate(ECC_status = as.factor(ECC_status))
+pseq_ECC_status
+
+# OTU
+pseq_OTUs = otu_table(pseq) %>% 
+  t() %>% as.data.frame()
+pseq_OTUs
+
+```
+
+
+```{r}
+# Combine the data into one data frame
+pseq_ECC_status_OTUs <- bind_cols(pseq_ECC_status, pseq_OTUs) %>% 
+  janitor::clean_names(case = "none")
+pseq_ECC_status_OTUs
+```
+
+
+
+```{r}
+# Set a seed for reproducibility
+set.seed(123)
+
+# Splitting the dataset
+split <- initial_split(pseq_ECC_status_OTUs, prop = 0.8)
+train_data <- training(split)
+test_data <- testing(split)
+
+# Define a recipe for preprocessing
+recipe <- recipe(ECC_status ~ ., data = train_data) %>%
+          step_nzv(all_predictors())
+
+# Prepare the recipe with training data
+prepared_recipe <- prep(recipe, training = train_data)
+
+# Apply the recipe to train and test data
+train_data_baked <- bake(prepared_recipe, new_data = train_data)
+test_data_baked <- bake(prepared_recipe, new_data = test_data)
+
+# Model specifications with tunable parameters
+Ridge_spec <- logistic_reg(penalty = tune(), mixture = 0) %>%
+  set_engine("glmnet") %>%
+  set_mode("classification")
+
+Lasso_spec <- logistic_reg(penalty = tune(), mixture = 1) %>%
+  set_engine("glmnet") %>%
+  set_mode("classification")
+
+SVM_spec <- svm_poly(cost = tune(),
+                     degree = tune()) %>%
+  set_engine("kernlab") %>%
+  set_mode("classification")
+
+RandomForest_spec <- rand_forest(trees = tune(),
+                       mtry = tune(),
+                       min_n = tune()) %>%
+  set_engine("ranger", num.threads = 20,
+             importance = "permutation") %>%
+  set_mode("classification")
+
+LightGBM_spec <- boost_tree(trees = tune(),
+                        min_n = tune(),
+                        tree_depth = tune(),
+                        learn_rate = tune(),
+                        mtry = tune()
+                        ) %>%
+  set_engine("lightgbm", num_threads = 20) %>%
+  set_mode("classification")
+
+# Cross-validation setup
+cv <- vfold_cv(train_data_baked, v = 5, strata = ECC_status)
+```
+
+
+```{r}
+# Workflows for each model
+workflows <- list(
+  Ridge = workflow() %>% add_model(Ridge_spec) %>% add_formula(ECC_status ~ .),
+  Lasso = workflow() %>% add_model(Lasso_spec) %>% add_formula(ECC_status ~ .),
+  SVM = workflow() %>% add_model(SVM_spec) %>% add_formula(ECC_status ~ .),
+  RandomForest = workflow() %>% add_model(RandomForest_spec) %>% add_formula(ECC_status ~ .),
+  LightGBM = workflow() %>% add_model(LightGBM_spec) %>% add_formula(ECC_status ~ .)
+)
+
+# Define different grid sizes for each model
+grid_sizes <- list(
+  Ridge = 50,
+  Lasso = 50,
+  SVM = 50,
+  RandomForest = 50,
+  LightGBM = 5
+)
+  # LightGBM with size 10 takes aroung 1.8 hours for 16S train data
+```
+
+
+```{r}
+# Set up parallel backend
+# registerDoParallel(cores = 20)  # Adjust the number of cores based on your machine
+
+# Tuning each model with parallel processing and timing each process
+tuning_results <- list()
+tuning_times <- list()
+
+for (model in names(workflows)) {
+  start_time <- Sys.time()  # Start timer
+
+  # Extract the model specification from the workflow
+  model_spec <- workflows[[model]] %>% pull_workflow_spec()
+
+  if (is.null(model_spec)) {
+    stop(paste("The model specification for", model, "is NULL. Please check your workflow setup."))
+  }
+
+  # Finalize parameters based on the training data
+  params <- parameters(model_spec) %>% finalize(train_data_baked)
+
+  # Create a random grid with the finalized parameters
+  grid_randomized <- grid_random(params, size = grid_sizes[[model]])
+
+  tuning_results[[model]] <- tune_grid(
+    workflows[[model]],
+    resamples = cv,
+    grid = grid_randomized,
+    # metrics = yardstick::metric_set(pr_auc),
+    control = control_grid(save_pred = TRUE, verbose = TRUE)
+  )
+
+  end_time <- Sys.time()  # End timer
+  tuning_times[[model]] <- end_time - start_time  # Calculate time taken
+  print(paste("Time taken for tuning", model, ":", tuning_times[[model]]))
+}
+
+# Optional: Stop parallel backend if used
+# stopImplicitCluster()
+```
+
+
+```{r}
+# Selecting the best parameters
+best_params <- map(tuning_results, select_best, "roc_auc")
+
+# Finalizing models with best parameters
+final_models <- map2(workflows, best_params, finalize_workflow)
+
+# Fitting the final models
+fits <- map(final_models, fit, data = train_data_baked)
+
+# Predict and evaluate
+results <- map_dfr(names(fits), ~{
+  preds <- predict(fits[[.x]], test_data_baked, type = "prob")
+  bind_cols(preds, test_data_baked, model_id = .x)  # Add model_id column with model names
+})
+
+# Now model_id column will have actual model names
+# Convert 'ECC_status' to a factor if it's not already
+results$ECC_status <- as.factor(results$ECC_status)
+# Assuming you have multiple models in 'results'
+
+# Calculate ROC curve for each model separately and bind the results
+roc_curve_data <- results %>%
+  group_by(model_id) %>%
+  group_modify(~roc_curve(.x, truth = ECC_status, .pred_1, event_level = "second")) %>%
+  ungroup()
+roc_curve_data
+
+# Then, calculate AUROC for each model
+auroc_values <- results %>%
+  group_by(model_id) %>%
+  group_modify(~roc_auc(.x, truth = ECC_status, .pred_1, event_level = "second"), .groups = 'drop') %>%
+  ungroup()
+
+# Combine model names with AUROC values
+auroc_values <- auroc_values %>%
+  mutate(AUROC = .estimate)  %>% 
+  select(model_id, AUROC)
+
+# Then, calculate AUROC for each model
+auprc_values <- results %>%
+  group_by(model_id) %>%
+  group_modify(~pr_auc(.x, truth = ECC_status, .pred_1, event_level = "second"), .groups = 'drop') %>%
+  ungroup()
+
+# Combine model names with AUROC values
+
+auprc_values <- auprc_values %>%
+  mutate(AUPRC = .estimate)  %>% 
+  select(model_id, AUPRC)
+
+auroc_auprc_values_ITS =  full_join(auroc_values, auprc_values)
+auroc_auprc_values_ITS
+
+saveRDS(auroc_auprc_values_ITS, here("Plaque538_Combined/Plaque538_ITS/Plaque538_ITS_A5_ML/auroc_auprc_values_ITS.rds"))
+```
+
+
+```{r}
+# Join this with roc_curve_data
+roc_curve_data_2 <- roc_curve_data %>%
+  left_join(auroc_auprc_values_ITS, by = "model_id") %>% 
+  mutate(Model_performance = paste(model_id, "AUROC:", round(AUROC, 3), "AUPRC:", round(AUPRC, 3) ))
+
+# Custom label formatting function
+format_ticks <- function(x) {
+  ifelse(x == 0, "0", sprintf("%.2f", x))
+}
+
+
+# Plot the ROC curves with AUROC values in the legend
+ggplot(roc_curve_data_2, aes(x = 1 - specificity, y = sensitivity, color = Model_performance)) +
+  geom_path() +
+  coord_equal() +
+  scale_x_continuous(limits = c(0, 1), expand = c(0, 0), labels = format_ticks) +  # Custom labels for x-axis
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0), labels = format_ticks) +  # Custom labels for y-axis
+  labs(title = "ITS_AUROC_Comparison") +
+  theme(
+    legend.title = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5)  # Add a box around the plot
+  ) +
+  theme_bw()
+
+ggsave(here("Plaque538_Combined/Plaque538_ITS/Plaque538_ITS_A5_ML/ITS_AUROC_Comparison.png"))
+
+```
+
+## Variable importance
+
+```{r}
+# Extract the fitted model from the workflow
+RandomForest_fit <- pull_workflow_fit(fits[["RandomForest"]])
+  
+# Use vip to extract variable importance
+VIP_df <- vi(RandomForest_fit,
+                     num_features = 20L,
+                     geom = "col")
+VIP_df = VIP_df %>% 
+  mutate(Relative_importance = Importance / max(Importance)) %>% 
+   head(15) %>% 
+  mutate(Variable = factor(Variable, levels = unique(rev(Variable))))
+
+
+ggplot(VIP_df, aes(y = Variable, x = Relative_importance)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Relative Variable Importance",  # Replace with your x-axis label
+       y = "Microbial Features",  # Replace with your y-axis label
+       title = "ITS_variable_importance") 
+
+
+```
+
+
+
+
+
+
+
+
