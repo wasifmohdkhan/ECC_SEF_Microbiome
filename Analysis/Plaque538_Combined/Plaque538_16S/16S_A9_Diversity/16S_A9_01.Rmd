@@ -1,0 +1,145 @@
+---
+title: "16S alpha diversity and sdoh"
+output: html_document
+date: "2024-01-01"
+---
+
+## R Markdown
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(here)
+library(tidyverse)
+# library(microbiome)
+# library(microbiomeMarker)
+library(phyloseq)
+# library(pheatmap)
+# library(RColorBrewer)
+# # Load the package
+# library(ComplexHeatmap)
+```
+
+
+### Import data
+
+```{r}
+Plaque538_16S_AllOTU_5perc_ps =
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A2_pseq_objects/Plaque538_16S_AllOTU_5perc_ps_17_vars_240306.Rds"))
+Plaque538_16S_AllOTU_5perc_ps
+
+## This is a good to remove the bad_empty names eg. "Unknown" also, if required
+## the aggregate_taxa only keeps the names at a particular tax-level eg Species with prerix "g__"
+Plaque538_16S_Species_ps = 
+  microbiomeMarker::aggregate_taxa( Plaque538_16S_AllOTU_5perc_ps, level = "Species", verbose = FALSE) %>%
+  phyloseq::tax_glom(
+  .,
+  taxrank = "Species",
+  bad_empty = c(NA, "", " ", "\t", "__") ) 
+Plaque538_16S_Species_ps
+```
+### Normalize in Microbiomemarker
+
+```{r}
+## AFter filtering some of the samples have all OTUs 0, hence it is important to add one to mitigate this problem
+Plaque538_16S_Species_ps_CPM =
+  phyloseq::prune_samples(sample_sums(Plaque538_16S_Species_ps) != 0, Plaque538_16S_Species_ps) %>% 
+  microbiomeMarker::normalize (., "CPM")
+
+Plaque538_16S_Species_ps_CPM
+```
+
+
+```{r}
+ps = Plaque538_16S_Species_ps_CPM
+
+# remove the variables not required
+variables_to_remove <- c("Child_overall_health", "Material_depr_score")
+ps@sam_data <- ps@sam_data[, !(colnames(ps@sam_data) %in% variables_to_remove)]
+
+```
+
+
+```{r}
+
+
+library(phyloseq)
+library(ggplot2)
+
+# Assuming 'ps' is your phyloseq object
+shannon_data <- estimate_richness(ps, measures = "Shannon")
+
+# Extract sample data
+sample_data <- data.frame(sample_data(ps))
+
+# Merge Shannon diversity with sample data
+merged_data <- cbind(sample_data, Shannon = shannon_data$Shannon)
+
+# Perform Spearman correlation and extract coefficients directly
+cor_coefficients <- apply(merged_data[, -which(names(merged_data) == "Shannon")], 2, function(x) {
+    cor.test(x, merged_data$Shannon, method = "spearman")$estimate
+})
+
+# Extract p-values
+p_values <- apply(merged_data[, -which(names(merged_data) == "Shannon")], 2, function(x) {
+    cor.test(x, merged_data$Shannon, method = "spearman")$p.value
+})
+
+# Create a data frame for plotting
+plot_data <- data.frame(Variable = names(cor_coefficients),
+                        Correlation = cor_coefficients, 
+                        Significant = ifelse(p_values < 0.05, "Significant", "Not Significant"))
+
+plot_data = plot_data %>% 
+  mutate(adj_p_value = p.adjust(p_values, "BH"))
+```
+
+
+```{r}
+
+# Create a bar plot
+Plaque538_16S_Species_Shannon_Diversity = 
+ggplot(plot_data, aes(x = Correlation, y = Variable, fill = adj_p_value < 0.05)) +
+  geom_bar(stat = "identity", alpha = 0.8, width = 0.8) +
+  scale_fill_manual(values = c("FALSE" = "grey", "TRUE" = "tan4"),
+                    labels = c(expression("Non-significant (" * italic("p") * " ≥ 0.05)"), 
+                               expression("Significant (" * italic("p") * " < 0.05)")), 
+                    name = "Alpha diversity\nStatistical Significance") + 
+  labs(title = "Bacteria",
+       x = "Spearman Correlation Coefficient (ρ)",
+       y = "Host variables",
+       fill = "Significance") +
+  scale_x_continuous(limits = c(-0.15, 0.15),
+                     breaks = round(seq(-0.15, 0.15, by = 0.05), digits = 2)
+                     ) + # Set the x-axis limits
+  theme_minimal(base_size = 12, base_family = "Arial") +
+  theme(
+    text = element_text(colour = "black"),
+    axis.title = element_text(size = 14),
+    axis.title.y = element_blank(), # Hide the y-axis title
+    axis.text = element_text(size = 12),
+    axis.text.y = element_text(colour = "black"),
+    axis.ticks.y = element_blank(), # Hide y-axis ticks
+    axis.ticks.x = element_blank(), # Hide x-axis ticks if desired
+    panel.grid.major = element_blank(), # Remove major grid lines
+    panel.grid.minor = element_blank(), # Remove minor grid lines
+    panel.background = element_blank(), # Remove panel background
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 11),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    legend.position = "bottom",
+    axis.line.x = element_line(color="black"), # Keep x-axis line
+    axis.line.y = element_blank() # Remove y-axis line
+  )
+
+# plot
+Plaque538_16S_Species_Shannon_Diversity
+
+# save
+saveRDS(Plaque538_16S_Species_Shannon_Diversity,
+        here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/Plaque538_16S_Species_Shannon_Diversity.rds")
+        )
+```
+
+

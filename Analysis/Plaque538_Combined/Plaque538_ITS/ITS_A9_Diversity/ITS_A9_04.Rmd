@@ -1,0 +1,103 @@
+---
+title: "ITS beta diversity and ECC"
+output: html_document
+date: "2024-02-06"
+---
+
+## R Markdown
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(here)
+library(tidyverse)
+# library(microbiome)
+# library(microbiomeMarker)
+library(phyloseq)
+# library(pheatmap)
+# library(RColorBrewer)
+# # Load the package
+# library(ComplexHeatmap)
+library(ggpubr)
+```
+
+
+### Import data
+
+```{r}
+Plaque538_ITS_AllOTU_5perc_ps =
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_ITS/ITS_A2_pseq_objects/Plaque538_ITS_AllOTU_5perc_ps_17_vars_240306.Rds"))
+Plaque538_ITS_AllOTU_5perc_ps
+
+## This is a good to remove the bad_empty names eg. "Unknown" also, if required
+## the aggregate_taxa only keeps the names at a particular tax-level eg Species with prerix "g__"
+Plaque538_ITS_Species_ps = 
+  microbiomeMarker::aggregate_taxa( Plaque538_ITS_AllOTU_5perc_ps, level = "Species", verbose = FALSE) %>%
+  phyloseq::tax_glom(
+  .,
+  taxrank = "Species",
+  bad_empty = c(NA, "", " ", "\t", "__") ) 
+Plaque538_ITS_Species_ps
+```
+### Normalize in Microbiomemarker
+
+```{r}
+## AFter filtering some of the samples have all OTUs 0, hence it is important to add one to mitigate this problem
+Plaque538_ITS_Species_ps_CPM =
+  phyloseq::prune_samples(sample_sums(Plaque538_ITS_Species_ps) != 0, Plaque538_ITS_Species_ps) %>% 
+  microbiomeMarker::normalize (., "CPM") #%>% 
+  #transform_sample_counts(., function(x) floor(x) )
+
+
+Plaque538_ITS_Species_ps_CPM
+```
+
+
+```{r}
+ps = Plaque538_ITS_Species_ps_CPM
+sample_data(ps)$ECC_status <- factor(ifelse(sample_data(ps)$ECC_status == 0, "CF", "ECC"),
+                                     levels = c("CF", "ECC"))
+```
+
+```{r}
+# Calculate distance matrix
+dist_matrix <- phyloseq::distance(ps, method = "bray")
+
+# Run adonis2
+adonis2_result <- vegan::adonis2(dist_matrix ~ phyloseq::sample_data(ps)$ECC_status) %>% 
+  broom::tidy(adonis2_result)
+adonis2_result
+
+
+```
+
+
+```{r}
+# Generate the ordination object
+ps_ord <- phyloseq::ordinate(ps, "RDA")
+
+# Create the plot
+Plaque538_ITS_Species_beta_div_pcaplot <- phyloseq::plot_ordination(ps, ps_ord, type="samples", color="ECC_status") +
+  geom_point(size = 2, alpha = 0.2) +
+  scale_color_manual(values = c("CF" = "darkblue", "ECC" = "red4" )) +
+  stat_ellipse(aes(group = ECC_status), linetype = 2) +
+  annotate("text", x = -Inf, y = Inf, label = paste0("adonis2\nR² = ", round(adonis2_result$R2[1], 3), 
+                                                    "\np-value = ", round(adonis2_result$p.value[1], 3)), 
+           hjust = -0.1, vjust = 1, size = 4) + # Adjust text position to top left, add "adonis2" label
+  theme_bw() +
+  theme(axis.title.y = element_text(size = 12, color = "black"),  # Y-axis title with specific size
+        axis.title.x = element_text(size = 12, color = "black"),  # X-axis title with default size
+        axis.text.x = element_text(size = 12, color = "black"),   # X-axis text with default size
+        axis.text.y = element_text(size = 12, color = "black"),   # Y-axis text with default size
+        legend.text = element_text(size = 14, color = "black"),   # Legend text with default size
+        legend.title = element_text(size = 16, color = "black"),  # Legend title with default size
+        strip.text = element_text(size = 12, color = "black"))  # Strip text with default size
+Plaque538_ITS_Species_beta_div_pcaplot
+
+# save
+saveRDS(Plaque538_ITS_Species_beta_div_pcaplot,
+        here("Analysis/Plaque538_Combined/Plaque538_ITS/ITS_A9_Diversity/Plaque538_ITS_Species_beta_div_pcaplot.rds")
+        )
+```
+

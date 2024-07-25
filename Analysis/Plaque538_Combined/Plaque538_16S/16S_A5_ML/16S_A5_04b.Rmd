@@ -4,9 +4,6 @@ output: html_document
 date: "2024-01-02"
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
 
 ## R Markdown
 ```{r}
@@ -260,7 +257,7 @@ grid_sizes <- list(
   Lasso = 50,
   SVM = 50,
   RandomForest = 50,
-  LightGBM = 5
+  LightGBM = 50
 )
   # LightGBM with size 10 takes aroung 1.8 hours for 16S train data
 ```

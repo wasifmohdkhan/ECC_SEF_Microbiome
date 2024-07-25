@@ -1,0 +1,83 @@
+---
+title: "combined_plot_shannon_Bray_16S_ITS_SODH"
+output: html_document
+date: "2024-02-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(here)
+library(patchwork)
+library(cowplot)
+library(ggpubr)
+library(ggplot2)
+```
+
+```{r}
+# Adjust the paths as necessary based on where your R project is located
+Plaque538_16S_Species_abun_barplot <-
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/Plaque538_16S_Species_abun_barplot.rds"))
+Plaque538_16S_Species_alpha_div_boxplot <-
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/Plaque538_16S_Species_alpha_div_boxplot.rds"))
+Plaque538_16S_Species_beta_div_pcaplot <- 
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/Plaque538_16S_Species_beta_div_pcaplot.rds"))
+
+Plaque538_ITS_Species_abun_barplot <- 
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_ITS/ITS_A9_Diversity/Plaque538_ITS_Species_abun_barplot.rds"))
+Plaque538_ITS_Species_alpha_div_boxplot <- 
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_ITS/ITS_A9_Diversity/Plaque538_ITS_Species_alpha_div_boxplot.rds"))
+Plaque538_ITS_Species_beta_div_pcaplot <- 
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_ITS/ITS_A9_Diversity/Plaque538_ITS_Species_beta_div_pcaplot.rds"))
+
+
+```
+
+```{r}
+combined_14 <- Plaque538_16S_Species_abun_barplot + Plaque538_ITS_Species_abun_barplot
+combined_25 <- Plaque538_16S_Species_alpha_div_boxplot + Plaque538_ITS_Species_alpha_div_boxplot
+combined_36 <- Plaque538_16S_Species_beta_div_pcaplot + Plaque538_ITS_Species_beta_div_pcaplot + 
+  patchwork::plot_layout( guides = 'collect') &
+  theme(legend.position='bottom')
+
+```
+
+```{r}
+# combined_14 + combined_25 + combined_36 + plot_annotation(tag_levels = 'A')
+
+```
+
+```{r}
+# Assuming combined_14, combined_25, and combined_36 are ggplot objects
+combined_plot_abun_shannon_Bray_16S_ITS <- wrap_elements(combined_14) / 
+                                           wrap_elements(combined_25) / 
+                                           wrap_elements(combined_36) +
+  plot_annotation(title = '                                 Bacteria                                                                                     Fungi',
+                  theme = theme(plot.title = element_text(size = 18)),
+                  tag_levels = "A") +
+  plot_layout(tag_level = 'new')  # Corrected tag_level to be "new"
+
+# Apply theme settings across all plots in the combination
+combined_plot_abun_shannon_Bray_16S_ITS <- combined_plot_abun_shannon_Bray_16S_ITS & 
+  theme(plot.title = element_text(size = 18),
+        plot.tag = element_text(size = 18))  # Styling tags with a specified size
+
+combined_plot_abun_shannon_Bray_16S_ITS
+
+# Save the combined plot to a file, if needed
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/combined_plot_abun_shannon_Bray_16S_ITS.png"),
+       combined_plot_abun_shannon_Bray_16S_ITS,
+       width = 16, height =17, dpi = 600)
+# Save the combined plot to a file, if needed
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/combined_plot_abun_shannon_Bray_16S_ITS.tiff"),
+       combined_plot_abun_shannon_Bray_16S_ITS,
+       width = 16, height =17, dpi = 600)
+```
+

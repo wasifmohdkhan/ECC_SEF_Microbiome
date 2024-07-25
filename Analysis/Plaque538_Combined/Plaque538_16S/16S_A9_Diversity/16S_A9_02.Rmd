@@ -1,0 +1,197 @@
+---
+title: "16S beta diversity and sdoh"
+output: html_document
+date: "2024-01-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+## R Markdown
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(here)
+library(tidyverse)
+# library(microbiome)
+# library(microbiomeMarker)
+library(phyloseq)
+library(vegan)
+# library(pheatmap)
+# library(RColorBrewer)
+# # Load the package
+# library(ComplexHeatmap)
+```
+
+
+### Import data
+
+```{r}
+Plaque538_16S_AllOTU_5perc_ps =
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A2_pseq_objects/Plaque538_16S_AllOTU_5perc_ps_17_vars_240306.Rds"))
+Plaque538_16S_AllOTU_5perc_ps
+
+## This is a good to remove the bad_empty names eg. "Unknown" also, if required
+## the aggregate_taxa only keeps the names at a particular tax-level eg Species with prerix "g__"
+Plaque538_16S_Species_ps = 
+  microbiomeMarker::aggregate_taxa( Plaque538_16S_AllOTU_5perc_ps, level = "Species", verbose = FALSE) %>%
+  phyloseq::tax_glom(
+  .,
+  taxrank = "Species",
+  bad_empty = c(NA, "", " ", "\t", "__") ) 
+Plaque538_16S_Species_ps
+```
+### Normalize in Microbiomemarker
+
+```{r}
+## AFter filtering some of the samples have all OTUs 0, hence it is important to add one to mitigate this problem
+Plaque538_16S_Species_ps_CPM =
+  phyloseq::prune_samples(sample_sums(Plaque538_16S_Species_ps) != 0, Plaque538_16S_Species_ps) %>% 
+  microbiomeMarker::normalize (., "CPM")
+
+Plaque538_16S_Species_ps_CPM
+```
+
+
+
+```{r}
+ps = Plaque538_16S_Species_ps_CPM
+
+# remove the variables not required
+variables_to_remove <- c("Child_overall_health", "Material_depr_score")
+ps@sam_data <- ps@sam_data[, !(colnames(ps@sam_data) %in% variables_to_remove)]
+```
+
+
+
+```{r}
+# Compute the Bray-Curtis distance matrix using phyloseq::distance
+distance_matrix <- phyloseq::distance(ps, method = "bray")
+distance_matrix %>%  as.matrix() %>%  head()
+
+# Extract Sample Data
+sample_data <- data.frame(sample_data(ps))
+sample_data
+```
+
+
+```{r}
+# Prepare a data frame to store results
+results <- data.frame(Variable = character(), R2 = numeric(), p_value = numeric())
+
+# Loop through each variable in sample data
+for (var in colnames(sample_data)) {
+    # Perform ADONIS
+    formula <- as.formula(paste("distance_matrix ~", var))
+    adonis_result <- adonis2(formula, data = sample_data)
+    
+    # Extract R-squared and store in results
+    r_squared <- adonis_result$'R2'[1]  # First entry corresponds to the variable
+    p.value = adonis_result$`Pr(>F)`[1]
+    results <- rbind(results, data.frame(Variable = var, R2 = r_squared, p_value = p.value))
+}
+results
+
+```
+
+
+```{r}
+# Add a new column 'Significant' based on p_value
+plot_data <- results %>%
+  mutate(adj_p_value = p.adjust(p_value, "BH")) 
+
+# # Plotting with ggplot2
+# ggplot(results, aes(x = R2, y = Variable, fill = adj_p_value < 0.05)) +
+#     geom_bar(stat = "identity") +
+#     scale_fill_manual(name = "BH adjusted\np.value < 0.05",
+#                       values = c("TRUE" = "red", "FALSE" = "grey")) + # Map TRUE/FALSE to colors
+#     xlab("R-squared") +
+#     ylab("Variables") +
+#     ggtitle("16S Bray–Curtis (beta) Diversity with adj_p_value") +
+#     theme_minimal() +
+#     theme(legend.position = "right") +
+#   theme(
+#     text = element_text(family = "Arial", colour = "black"), # Change font family to Arial
+#     axis.text.y = element_text(colour = "black")
+#     )
+# 
+# ggsave(file =
+#          here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A9_Diversity/16S_Bray_Diversity.png"),
+#        width = 8, height = 6)
+```
+
+
+```{r}
+Plaque538_16S_Species_Bray_Diversity = 
+ggplot(plot_data, aes(x = R2, y = Variable, fill = adj_p_value < 0.05)) +
+  geom_bar(stat = "identity", alpha  = 0.8) +
+  scale_fill_manual(values = c("FALSE" = "grey", "TRUE" = "blue4"),
+                    labels = c(expression("Non-significant (" * italic("p") * " ≥ 0.05)"), 
+                               expression("Significant (" * italic("p") * " < 0.05)")), 
+                    name = "Beta Diversity\nStatistical Significance") + 
+  labs(title = "Bacteria",
+       x = expression(R^2 * " value"),
+       y = "Host variables",
+       fill = "Significance") +
+  scale_x_continuous(limits = c(0, 0.05),
+                     breaks = round(seq(0, 0.04, by = 0.01), digits = 2)
+                     ) + # Set the x-axis limits
+  theme_minimal(base_size = 12, base_family = "Arial") +
+  theme(
+    text = element_text(colour = "black"),
+    axis.title = element_text(size = 14),
+    axis.title.y = element_blank(), # Hide the y-axis title
+    axis.text = element_text(size = 12),
+    axis.text.y = element_text(colour = "black"),
+    axis.ticks.y = element_blank(), # Hide y-axis ticks
+    axis.ticks.x = element_blank(), # Hide x-axis ticks if desired
+    panel.grid.major = element_blank(), # Remove major grid lines
+    panel.grid.minor = element_blank(), # Remove minor grid lines
+    panel.background = element_blank(), # Remove panel background
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 11),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    legend.position = "bottom",
+    axis.line.x = element_line(color="black"), # Keep x-axis line
+    axis.line.y = element_blank() # Remove y-axis line
+  )
+
+# plot
+Plaque538_16S_Species_Bray_Diversity
+
+# save
+saveRDS(Plaque538_16S_Species_Bray_Diversity,
+        here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/Plaque538_16S_Species_Bray_Diversity.rds")
+        )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

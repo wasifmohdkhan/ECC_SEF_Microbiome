@@ -1,0 +1,106 @@
+---
+title: "combined_plot_shannon_Bray_16S_ITS_SODH"
+output: html_document
+date: "2024-02-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(here)
+library(patchwork)
+library(cowplot)
+
+library(ggplot2)
+```
+
+
+```{r}
+# Adjust the paths as necessary based on where your R project is located
+plot1_path <- here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/Plaque538_16S_Species_Shannon_Diversity.rds")
+plot2_path <- here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/Plaque538_ITS_Species_Shannon_Diversity.rds")
+plot3_path <- here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/Plaque538_16S_Species_Bray_Diversity.rds")
+plot4_path <- here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/Plaque538_ITS_Species_Bray_Diversity.rds")
+
+# Load the plots
+plot1 <- readRDS(plot1_path)
+plot2 <- readRDS(plot2_path)
+plot3 <- readRDS(plot3_path)
+plot4 <- readRDS(plot4_path) # Make sure this corresponds to your actual fourth plot
+
+
+# Combine plots 1 and 2, and then 3 and 4, with shared legends
+combined_12 <- plot1 + plot2 + patchwork::plot_layout(axes  = 'collect', guides = 'collect') &
+  theme(legend.position='bottom') 
+combined_34 <- plot3 + plot4 + patchwork::plot_layout(axes  = 'collect', guides = 'collect') &
+  theme(legend.position='bottom')  
+```
+```{r}
+combined_12 + plot_annotation(tag_levels = 'A')
+
+```
+
+```{r}
+# dev.off()
+```
+
+```{r}
+
+# Create the final layout with combined_12 and combined_34, adding labels
+combined_plot_shannon_Bray_16S_ITS <- wrap_elements(combined_12 ) / 
+                                     wrap_elements(combined_34 ) + plot_annotation(tag_levels = 'A')
+# Render the plot
+print(combined_plot_shannon_Bray_16S_ITS) 
+
+# Save the combined plot to a file, if needed
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/combined_plot_shannon_Bray_16S_ITS.png"),
+       combined_plot_shannon_Bray_16S_ITS,
+       width = 11, height =14, dpi = 600)
+# Save the combined plot to a file, if needed
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/combined_plot_shannon_Bray_16S_ITS.tiff"),
+       combined_plot_shannon_Bray_16S_ITS,
+       width = 11, height =14, dpi = 600)
+```
+
+```{r}
+# Install and load the ggsci package if necessary
+if (!requireNamespace("ggsci", quietly = TRUE)) {
+  install.packages("ggsci")
+}
+library(ggsci)
+
+# Define the number of colors you want from the NPG palette
+num_colors <- 6
+
+# Generate the NPG color palette
+npg_palette <- pal_nejm()(num_colors)
+
+# Print the hexadecimal color codes
+print(npg_palette)
+
+# Create a basic plot with these colors
+library(ggplot2)
+
+# Create a data frame for the plot
+df <- data.frame(x = 1:num_colors, y = rep(1, num_colors), col = npg_palette)
+
+# Make a bar plot to show the colors
+ggplot(df, aes(x = factor(x), y = y, fill = col)) +
+  geom_bar(stat = "identity") +
+  scale_fill_identity() +
+  labs(title = "NPG Color Palette", x = "Color Index", y = "") +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1), axis.ticks.x = element_blank())
+
+```
+
+
+
+

@@ -1,0 +1,161 @@
+---
+title: "16S alpha diversity and ECC"
+output: html_document
+date: "2024-02-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(here)
+library(tidyverse)
+# library(microbiome)
+# library(microbiomeMarker)
+library(phyloseq)
+# library(pheatmap)
+# library(RColorBrewer)
+# # Load the package
+# library(ComplexHeatmap)
+library(ggpubr)
+library(microeco)
+```
+
+
+### Import data
+
+```{r}
+Plaque538_16S_AllOTU_5perc_ps =
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A2_pseq_objects/Plaque538_16S_AllOTU_5perc_ps_17_vars_240306.Rds"))
+Plaque538_16S_AllOTU_5perc_ps
+
+## This is a good to remove the bad_empty names eg. "Unknown" also, if required
+## the aggregate_taxa only keeps the names at a particular tax-level eg Species with prerix "g__"
+Plaque538_16S_Species_ps = 
+  microbiomeMarker::aggregate_taxa( Plaque538_16S_AllOTU_5perc_ps, level = "Species", verbose = FALSE) %>%
+  phyloseq::tax_glom(
+  .,
+  taxrank = "Species",
+  bad_empty = c(NA, "", " ", "\t", "__") ) 
+Plaque538_16S_Species_ps
+```
+### Normalize in Microbiomemarker
+
+```{r}
+## AFter filtering some of the samples have all OTUs 0, hence it is important to add one to mitigate this problem
+Plaque538_16S_Species_ps_CPM =
+  phyloseq::prune_samples(sample_sums(Plaque538_16S_Species_ps) != 0, Plaque538_16S_Species_ps) %>% 
+  microbiomeMarker::normalize (., "CPM") %>% 
+  transform_sample_counts(., function(x) floor(x) ) ## required for chao1
+
+
+Plaque538_16S_Species_ps_CPM
+```
+
+
+```{r}
+ps = Plaque538_16S_Species_ps_CPM
+sample_data(ps)
+```
+
+# change the entries in sample-data column ECC_status as CF for 0 and ECC for 1
+```{r}
+ps@sam_data$ECC_status <- ifelse(ps@sam_data$ECC_status == 0, "CF", "ECC") 
+sample_data(ps)
+```
+
+
+
+```{r}
+Plaque538_16S_Species_alpha_div = 
+data.frame(
+  "Observed" = phyloseq::estimate_richness(ps, measures = "Observed"),
+  "Chao1" = phyloseq::estimate_richness(ps, measures = "Chao1"),
+  "Shannon" = phyloseq::estimate_richness(ps, measures = "Shannon"),
+  "Simpson" = phyloseq::estimate_richness(ps, measures = "Simpson"),
+  "ECC_status" = phyloseq::sample_data(ps)$ECC_status
+
+)
+head(Plaque538_16S_Species_alpha_div)
+```
+
+```{r}
+Plaque538_16S_Species_alpha_div_2 = Plaque538_16S_Species_alpha_div %>% 
+  # mutate(ECC_status = case_when(
+  #     ECC_status == 0 ~ "CF", # Example condition, replace with your actual logic
+  #     ECC_status == 1 ~ "ECC",
+  #     TRUE ~ NA # Default case if other conditions aren't met
+  #   )) %>% 
+  mutate(Chao1 = Chao1.Chao1) 
+  
+Plaque538_16S_Species_alpha_div_2
+a_my_comparisons <- list( c("CF", "ECC"))
+symnum.args = list(cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 1), symbols = c("****", "***", "**", "*", "ns"))
+
+diversities_to_compare = c( "Chao1", "Shannon", "Simpson")
+
+Plaque538_16S_Species_alpha_div_boxplot = 
+  Plaque538_16S_Species_alpha_div_2 %>%
+    gather(key = metric, value = value, diversities_to_compare) %>%
+    mutate(metric = factor(metric, levels = diversities_to_compare)) %>%
+    ggplot(aes(x = ECC_status, y = value)) +
+    geom_boxplot(outlier.color = NA) +
+    scale_color_manual(values = c("CF" = "darkblue", "ECC" = "red4" )) +
+    geom_jitter(aes(color = ECC_status), height = 0, width = .2, alpha = 0.7) +
+    labs(x = "", y = "") +
+    facet_wrap(~ metric, scales = "free", nrow = 1) +
+    stat_compare_means(method = "wilcox.test", comparisons = a_my_comparisons, label = "p.signif", symnum.args = symnum.args) +
+  theme_bw() +
+  theme(legend.position="none",
+        axis.title.y = element_text(size = 18, color = "black"),  # Y-axis title with specific size
+        axis.title.x = element_text(size = 12, color = "black"),  # X-axis title with default size
+        axis.text.x = element_text(size = 12, color = "black"),   # X-axis text with default size
+        axis.text.y = element_text(size = 12, color = "black"),   # Y-axis text with default size
+        legend.text = element_text(size = 10, color = "black"),   # Legend text with default size
+        legend.title = element_text(size = 12, color = "black"),  # Legend title with default size
+        strip.text = element_text(size = 12, color = "black"))  # Strip text with default size
+Plaque538_16S_Species_alpha_div_boxplot
+
+
+# save
+saveRDS(Plaque538_16S_Species_alpha_div_boxplot,
+        here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/Plaque538_16S_Species_alpha_div_boxplot.rds")
+        )
+```
+```{r}
+t.test(Simpson~ECC_status, data = Plaque538_16S_Species_alpha_div_2)
+```
+
+# create a microtable object
+
+```{r}
+ps_microeco = file2meco::phyloseq2meco(ps)
+ps_microeco
+```
+
+```{r}
+# The groupmean parameter can be used to obtain the group-mean barplot.
+t1 <- trans_abund$new(dataset = ps_microeco, taxrank = "Species", ntaxa = 20, use_percentage = FALSE, groupmean = "ECC_status")
+g1 <- t1$plot_bar(others_color = "grey70", legend_text_italic = TRUE)
+Plaque538_16S_Species_abun_barplot = g1 +
+  theme_bw() +
+  theme(axis.title.y = element_text(size = 14, color = "black"),  # Y-axis title with specific size
+        axis.title.x = element_text(size = 12, color = "black"),  # X-axis title with default size
+        axis.text.x = element_text(size = 12, color = "black"),   # X-axis text with default size
+        axis.text.y = element_text(size = 12, color = "black"),   # Y-axis text with default size
+        legend.text = element_text(size = 10, color = "black"),   # Legend text with default size
+        legend.title = element_text(size = 12, color = "black"))  # Legend title with default size
+Plaque538_16S_Species_abun_barplot
+
+# save
+saveRDS(Plaque538_16S_Species_abun_barplot,
+        here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A9_Diversity/Plaque538_16S_Species_abun_barplot.rds")
+        )
+```
+

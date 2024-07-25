@@ -1,0 +1,873 @@
+---
+title: "Maaslin2 on 16S and ITS with confounders Species spring"
+output: html_document
+date: "2023-10-17"
+---
+
+## R Markdown
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(here)
+library(tidyverse)
+library(microbiome)
+library(microbiomeMarker)
+library(phyloseq)
+library(pheatmap)
+library(RColorBrewer)
+# Load the package
+library(ComplexHeatmap)
+library(circlize)
+library(Maaslin2)
+library(ggraph)
+library(NetCoMi)
+library(ggraph)
+library(igraph)
+library(tidygraph)
+```
+
+```{r}
+```
+
+### Import data
+
+```{r}
+Plaque538_16S_AllOTU_5perc_ps =
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A2_pseq_objects/Plaque538_16S_AllOTU_5perc_ps_17_vars_240306.Rds"))
+Plaque538_16S_AllOTU_5perc_ps
+
+## This is a good to remove the bad_empty names eg. "Unknown" also, if required
+## the aggregate_taxa only keeps the names at a particular tax-level eg Species with prerix "g__"
+Plaque538_16S_Species_ps = 
+  microbiomeMarker::aggregate_taxa( Plaque538_16S_AllOTU_5perc_ps, level = "Species", verbose = FALSE) %>%
+  phyloseq::tax_glom(
+  .,
+  taxrank = "Species",
+  bad_empty = c(NA, "", " ", "\t", "__") ) 
+Plaque538_16S_Species_ps
+```
+
+```{r}
+Plaque538_16S_Species_ps %>% otu_table() %>% as.data.frame()
+```
+```{r}
+Plaque538_16S_Species_ps %>% tax_table() %>% as.data.frame()
+```
+```{r}
+
+Plaque538_16S_Species_ps %>% tax_table()  %>% as.data.frame()
+Plaque538_16S_Species_ps %>% otu_table() %>% as.data.frame()
+
+```
+
+# replace special characters in the rownames of the otu_table and the Species column of the tax_table
+This is required for Maaslin2 to work properly as Maaslin2 changes the special characters to .
+```{r}
+# Your custom function to replace characters
+replace_chars <- function(names) {
+  gsub("\\(|\\)|\\[|\\]|-|&", "", names)
+}
+
+# Extracting components from the phyloseq object
+Plaque538_16S_Species_ps_otu_table <- otu_table(Plaque538_16S_Species_ps)
+Plaque538_16S_Species_ps_tax_table <- tax_table(Plaque538_16S_Species_ps)
+Plaque538_16S_Species_ps_sample_data <- sample_data(Plaque538_16S_Species_ps)
+
+# Apply the replace_chars function to the row names of the OTU table
+rownames(Plaque538_16S_Species_ps_otu_table) <- replace_chars(rownames(Plaque538_16S_Species_ps_otu_table))
+
+# Apply the replace_chars function to all columns in the tax_table, including the rownames
+tax_table_df <- as.data.frame(Plaque538_16S_Species_ps_tax_table) # Convert tax_table to a data frame
+tax_table_df[] <- lapply(tax_table_df, replace_chars) # Apply function to all columns
+rownames(tax_table_df) <- replace_chars(rownames(tax_table_df)) # Apply function to row names separately
+
+# Convert back to Taxonomy Table object
+Plaque538_16S_Species_ps_tax_table <- tax_table(as.matrix(tax_table_df))
+
+# Combine everything back into a new phyloseq object
+Plaque538_16S_Species_ps_modified <- phyloseq(Plaque538_16S_Species_ps_otu_table,
+                                              Plaque538_16S_Species_ps_tax_table,
+                                              Plaque538_16S_Species_ps_sample_data)
+
+# The phyloseq object now has the modified taxonomy table with replaced characters in all columns and rownames
+Plaque538_16S_Species_ps <- Plaque538_16S_Species_ps_modified
+Plaque538_16S_Species_ps
+```
+
+```{r}
+# 
+Plaque538_16S_Species_ps_otu_table %>% as.data.frame()
+Plaque538_16S_Species_ps_tax_table  %>% as.data.frame()
+Plaque538_16S_Species_ps %>% otu_table() %>% as.data.frame()
+
+```
+
+
+
+
+```{r}
+# Extract and modify taxa names
+new_taxa_names_16S_Species <- gsub("s__", "B_", taxa_names(Plaque538_16S_Species_ps))
+
+# Update taxa names in-place in the phyloseq object
+taxa_names(Plaque538_16S_Species_ps) <- new_taxa_names_16S_Species
+
+# Confirm that the 's__' prefix has been removed
+head(taxa_names(otu_table(Plaque538_16S_Species_ps)))
+
+```
+### Normalize in Microbiomemarker
+
+```{r}
+## AFter filtering some of the samples have all OTUs 0, hence it is important to add one to mitigate this problem
+Plaque538_16S_Species_ps_CPM =
+  phyloseq::prune_samples(sample_sums(Plaque538_16S_Species_ps) != 0, Plaque538_16S_Species_ps) %>% 
+  microbiomeMarker::normalize (., "CPM")
+
+Plaque538_16S_Species_ps_CPM
+
+# Plaque538_16S_Species_ps_CLR = Plaque538_16S_Species_ps_CPM %>%
+#   microbiomeMarker::normalize(., "CLR")
+# Plaque538_16S_Species_ps_CLR
+```
+
+### Import data
+
+```{r}
+Plaque538_ITS_AllOTU_5perc_ps =
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_ITS/ITS_A2_pseq_objects/Plaque538_ITS_AllOTU_5perc_ps_17_vars_240306.Rds"))
+Plaque538_ITS_AllOTU_5perc_ps
+
+## This is a good to remove the bad_empty names eg. "Unknown" also, if required
+## the aggregate_taxa only keeps the names at a particular tax-level eg Species with prerix "g__"
+Plaque538_ITS_Species_ps = 
+  microbiomeMarker::aggregate_taxa( Plaque538_ITS_AllOTU_5perc_ps, level = "Species", verbose = FALSE) %>%
+  phyloseq::tax_glom(
+  .,
+  taxrank = "Species",
+  bad_empty = c(NA, "", " ", "\t", "__") ) 
+Plaque538_ITS_Species_ps
+```
+# replace special characters in the rownames of the otu_table and the Species column of the tax_table
+This is required for Maaslin2 to work properly as Maaslin2 changes the special characters to .
+```{r}
+# Your custom function to replace characters
+replace_chars <- function(names) {
+  gsub("\\(|\\)|\\[|\\]|-|&", "", names)
+}
+
+# Extracting components from the phyloseq object
+Plaque538_ITS_Species_ps_otu_table <- otu_table(Plaque538_ITS_Species_ps)
+Plaque538_ITS_Species_ps_tax_table <- tax_table(Plaque538_ITS_Species_ps)
+Plaque538_ITS_Species_ps_sample_data <- sample_data(Plaque538_ITS_Species_ps)
+
+# Apply the replace_chars function to the row names of the OTU table
+rownames(Plaque538_ITS_Species_ps_otu_table) <- replace_chars(rownames(Plaque538_ITS_Species_ps_otu_table))
+
+# Apply the replace_chars function to all columns in the tax_table, including the rownames
+tax_table_df <- as.data.frame(Plaque538_ITS_Species_ps_tax_table) # Convert tax_table to a data frame
+tax_table_df[] <- lapply(tax_table_df, replace_chars) # Apply function to all columns
+rownames(tax_table_df) <- replace_chars(rownames(tax_table_df)) # Apply function to row names separately
+
+# Convert back to Taxonomy Table object
+Plaque538_ITS_Species_ps_tax_table <- tax_table(as.matrix(tax_table_df))
+
+# Combine everything back into a new phyloseq object
+Plaque538_ITS_Species_ps_modified <- phyloseq(Plaque538_ITS_Species_ps_otu_table,
+                                              Plaque538_ITS_Species_ps_tax_table,
+                                              Plaque538_ITS_Species_ps_sample_data)
+
+# The phyloseq object now has the modified taxonomy table with replaced characters in all columns and rownames
+Plaque538_ITS_Species_ps <- Plaque538_ITS_Species_ps_modified
+Plaque538_ITS_Species_ps
+```
+
+```{r}
+# Extract and modify taxa names
+new_taxa_names_ITS_Species <- gsub("s__", "F_", taxa_names(Plaque538_ITS_Species_ps))
+
+# Update taxa names in-place in the phyloseq object
+taxa_names(Plaque538_ITS_Species_ps) <- new_taxa_names_ITS_Species
+
+# Confirm that the 's__' prefix has been removed
+otu_table(Plaque538_ITS_Species_ps) %>% as.data.frame()
+```
+
+
+### Normalize in Microbiomemarker
+
+```{r}
+## AFter filtering some of the samples have all OTUs 0, hence it is important to add one to mitigate this problem
+Plaque538_ITS_Species_ps_CPM =
+  phyloseq::prune_samples(sample_sums(Plaque538_ITS_Species_ps) != 0, Plaque538_ITS_Species_ps) %>% 
+  microbiomeMarker::normalize (., "CPM")
+
+Plaque538_ITS_Species_ps_CPM
+
+# Plaque538_ITS_Species_ps_CLR = Plaque538_ITS_Species_ps_CPM %>% 
+#   microbiomeMarker::normalize (., "CLR")
+# Plaque538_ITS_Species_ps_CLR
+```
+
+
+## Remove the variables not required from the sample data
+```{r}
+# remove the variables not required
+variables_to_remove <- c("Child_overall_health", "Material_depr_score")
+
+
+Plaque538_16S_Species_ps_CPM@sam_data <- 
+  Plaque538_16S_Species_ps_CPM@sam_data[, !(colnames(Plaque538_16S_Species_ps_CPM@sam_data) %in% variables_to_remove)]
+Plaque538_16S_Species_ps_CPM
+
+Plaque538_ITS_Species_ps_CPM@sam_data <- 
+  Plaque538_ITS_Species_ps_CPM@sam_data[, !(colnames(Plaque538_ITS_Species_ps_CPM@sam_data) %in% variables_to_remove)]
+Plaque538_ITS_Species_ps_CPM
+
+```
+
+## Merge the two phyloseq objects
+```{r}
+# Plaque538_16S_ITS_Species_ps = merge_phyloseq(Plaque538_16S_Species_ps_CPM,Plaque538_ITS_Species_ps_CPM)#,Plaque538_16S_KEGG_ps)
+# Plaque538_16S_ITS_Species_ps
+```
+
+We will apply Maaslin2 separately on 16S and ITS data and later combine the output to get a single heatmap
+
+```{r}
+# confounders = c()
+confounders = c("Sex", "Age", "Urban_status")
+```
+
+
+## Maaslin2 on 16S with confounders
+
+```{r}
+Maaslin2_output_dir = here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A4_LM/Maaslin2_240216")
+# Check if the directory exists, and create it if it does not
+if (!dir.exists(Maaslin2_output_dir)) {
+  dir.create(Maaslin2_output_dir, recursive = TRUE)
+}
+```
+
+
+```{r message=FALSE}
+# Initialize lists to temporarily hold the data
+list_coef_16S <- list()
+list_qval_16S <- list()
+
+pseq = Plaque538_16S_Species_ps_CPM
+
+
+# Iterate through each variable to run Maaslin2 and filter results
+for(var in c("ECC_status")) {
+#for(var in c("ECC_status", "Child_dental_health")) { # for try
+  # Run Maaslin2 analysis
+  Maaslin2_res <- Maaslin2(input_data = t(otu_table(pseq)),
+         input_metadata = sample_data(pseq) %>% data.frame(),
+         output = Maaslin2_output_dir,
+         normalization = "CLR",
+         transform = "NONE",
+         fixed_effects =  c(var, confounders),
+         cores = 40,
+         max_significance = 0.05,
+           )
+  
+    # Filter and transform the output data frame
+  filtered_df <- Maaslin2_res$results %>% 
+                 data.frame() %>% 
+                  rename(OTUs = feature ) %>% 
+                 filter(metadata  == var & qval < 0.01) %>% 
+                 dplyr::select(OTUs, coef, qval)
+  
+  # Rename the coef and qval columns to the current variable
+  filtered_df_coef <- filtered_df %>% dplyr::select(OTUs, coef) %>% 
+                     rename(!!var := coef)
+                     
+  filtered_df_qval <- filtered_df %>% dplyr::select(OTUs, qval) %>% 
+                      rename(!!var := qval)
+  
+  # Store in lists
+  list_coef_16S[[var]] <- filtered_df_coef
+  list_qval_16S[[var]] <- filtered_df_qval
+}
+
+# Use purrr to merge all data frames in the lists
+final_df_coef_16S <- reduce(list_coef_16S, full_join, by = "OTUs")
+final_df_qval_16S <- reduce(list_qval_16S, full_join, by = "OTUs")
+```
+
+## Maaslin2 on ITS
+```{r}
+# Initialize lists to temporarily hold the data
+list_coef_ITS <- list()
+list_qval_ITS <- list()
+
+pseq = Plaque538_ITS_Species_ps_CPM
+
+
+# Iterate through each variable to run Maaslin2 and filter results
+for(var in c("ECC_status")) {
+#for(var in c("ECC_status", "Child_dental_health")) { # for try
+  # Run Maaslin2 analysis
+  Maaslin2_res <- Maaslin2(input_data = t(otu_table(pseq)),
+         input_metadata = sample_data(pseq) %>% data.frame(),
+         output = Maaslin2_output_dir, # if file error quit sesssion and connect
+         normalization = "CLR",
+         transform = "NONE",
+         fixed_effects =  c(var, confounders),
+         cores = 40,
+         max_significance = 0.05,
+           )
+  
+    # Filter and transform the output data frame
+  filtered_df <- Maaslin2_res$results %>% 
+                 data.frame() %>% 
+                  rename(OTUs = feature ) %>% 
+                 filter(metadata  == var & qval < 0.01) %>% 
+                 dplyr::select(OTUs, coef, qval)
+  
+  # Rename the coef and qval columns to the current variable
+  filtered_df_coef <- filtered_df %>% dplyr::select(OTUs, coef) %>% 
+                     rename(!!var := coef)
+                     
+  filtered_df_qval <- filtered_df %>% dplyr::select(OTUs, qval) %>% 
+                      rename(!!var := qval)
+  
+  # Store in lists
+  list_coef_ITS[[var]] <- filtered_df_coef
+  list_qval_ITS[[var]] <- filtered_df_qval
+}
+
+# Use purrr to merge all data frames in the lists
+final_df_coef_ITS <- reduce(list_coef_ITS, full_join, by = "OTUs")
+final_df_qval_ITS <- reduce(list_qval_ITS, full_join, by = "OTUs")
+
+```
+
+
+## Vector for Maaslin2 identified bacterial and Fungi
+```{r}
+Maaslin2_16S_ITS = c(final_df_coef_16S$OTUs,
+                  final_df_coef_ITS$OTUs)
+
+Maaslin2_16S_ITS
+```
+
+```{r}
+Plaque538_16S_ITS_Species_ps_CPM_2_Maaslin2_coef = rbind(final_df_coef_16S,
+                                                     final_df_coef_ITS)
+Plaque538_16S_ITS_Species_ps_CPM_2_Maaslin2_coef
+```
+
+
+## Merge the two phyloseq objects
+```{r}
+Plaque538_16S_ITS_Species_ps = merge_phyloseq(Plaque538_16S_Species_ps_CPM,Plaque538_ITS_Species_ps_CPM)
+Plaque538_16S_ITS_Species_ps
+
+
+```
+
+
+```{r}
+# Split the phyloseq object into two groups
+Plaque538_16S_ITS_Species_CF <- phyloseq::subset_samples(Plaque538_16S_ITS_Species_ps, 
+                                             ECC_status == 0)
+Plaque538_16S_ITS_Species_CF
+
+Plaque538_16S_ITS_Species_ECC <- phyloseq::subset_samples(Plaque538_16S_ITS_Species_ps, 
+                                             ECC_status == 1)
+
+Plaque538_16S_ITS_Species_ECC
+
+
+```
+
+
+
+
+```{r}
+start.time <- Sys.time()
+```
+
+
+```{r}
+# Network construction
+net_ECC_status <- netConstruct(data = Plaque538_16S_ITS_Species_CF,
+                                  data2 = Plaque538_16S_ITS_Species_ECC,
+                           # filtTax = "highestVar",
+                           # filtTaxPar = list(highestVar = 50),
+                           # filtSamp = "highestFreq",
+                           # filtSampPar = list(highestFreq = n_CF),
+                           measure = "spring", # default "spieceasi"
+                           # measurePar = list(nlambda=10,
+                           #                   rep.num=10),
+                           # normMethod = "clr",
+                           zeroMethod = "none",
+                           sparsMethod = "none",
+                           dissFunc = "signed",
+                           verbose = 3,
+                           seed = 123456,
+                           cores =  40)
+# This takbe a long time about 5 hours
+```
+
+```{r}
+end.time <- Sys.time()
+end.time - start.time
+```
+
+```{r}
+file_name = here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A6_Network_Analysis/net_Disease_status_16S_A6_16.rds")
+```
+
+
+```{r}
+saveRDS(net_ECC_status, file = file_name )
+```
+
+
+```{r}
+net_ECC_status <- readRDS(file = file_name)
+```
+
+```{r}
+netAnalyze_ECC_status <- netAnalyze(net_ECC_status, 
+                           centrLCC = FALSE,
+                           avDissIgnoreInf = TRUE,
+                           sPathNorm = FALSE,
+                           clustMethod = "cluster_fast_greedy",
+                           hubPar = c("degree", "eigenvector"),
+                           hubQuant = 0.9,
+                           lnormFit = TRUE,
+                           normDeg = FALSE,
+                           normBetw = FALSE,
+                           normClose = FALSE,
+                           normEigen = FALSE)
+```
+
+
+```{r}
+# Set the file name and path
+png(file = here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A6_Network_Analysis/Network_Maaslin2_ECC_CF.png"),
+    width = 25, height = 15, units = "cm", res = 200)
+
+
+
+
+plot(netAnalyze_ECC_status, 
+     sameLayout = TRUE, 
+     #layoutGroup = 1,
+     rmSingles = "inboth", 
+     nodeSize = "mclr", 
+     labelScale = FALSE,
+     cexNodes = 0.5, 
+     cexLabels = 0.5,
+     cexHubLabels = .7,
+     cexTitle = 1,
+     groupNames = c("Disease_status_CF", "Disease_status_ECC"),
+     hubBorderCol  = "gray40",
+     repulsion = 1,
+     groupsChanged = F,
+     shortenLabels = "intelligent",
+     labelLength = 30L,
+     #labelPattern = c(10, "'", 5)
+    layout  =  "spring",
+    nodeFilter = "names",
+     nodeFilterPar = Maaslin2_16S_ITS)
+
+#legend("bottom", title = "estimated association:", legend = c("+","-"), 
+# Save and close the device
+dev.off()
+```
+
+
+```{r}
+# Differential network construction
+diff_ECC_status <- diffnet(net_ECC_status,
+                       diffMethod = "discordant", 
+                       discordThresh = 0.95,
+                       adjust = "adaptBH",
+                       #nPerm =  100,
+                       cores = 40)
+```
+
+```{r}
+# Differential network plot
+plot(diff_ECC_status, 
+     cexNodes = 0.5, 
+     cexLegend = 1,
+     cexLabels = 7,
+     cexTitle = 1,
+     mar = c(2,2,8,5),
+     legendGroupnames = c("CF", "ECC"),
+     legendPos = c(0.7,1.6),
+     nodeFilter = "names",
+     nodeFilterPar = Maaslin2_16S_ITS)
+```
+##since Maaslin2 replaces the ( ) and [ ] characters with a "." ,
+## we need to replace the "." with the ( ) and [ ] characters in diff_ECC_status[["diffMat"]]
+
+## Extract diffMat from diff_ECC_status and select Maaslin2 species
+```{r}
+
+# Define a function to replace parentheses and brackets with a period
+replace_chars <- function(names) gsub("\\(|\\)|\\[|\\]|-|&", ".", names)
+
+diff_ECC_status_diffMat = diff_ECC_status[["diffMat"]]
+
+# Apply the function to row names and column names
+rownames(diff_ECC_status_diffMat) <- replace_chars(rownames(diff_ECC_status_diffMat))
+colnames(diff_ECC_status_diffMat) <- replace_chars(colnames(diff_ECC_status_diffMat))
+
+diffMat2 = diff_ECC_status_diffMat[Maaslin2_16S_ITS, Maaslin2_16S_ITS]
+
+diffMat2
+```
+
+```{r}
+# Differential network plot
+plot(diffMat2, 
+     cexNodes = 0.5, 
+     cexLegend = 1,
+     cexLabels = 7,
+     cexTitle = 1,
+     mar = c(2,2,8,5),
+     legendGroupnames = c("CF", "ECC"),
+     legendPos = c(0.7,1.6))
+```
+
+# Subsetting all matrices in the list
+```{r}
+
+diff_ECC_status_Maaslin2_species <- lapply(diff_ECC_status, function(x) {
+    if (is.matrix(x)) {
+      rownames(x) <- replace_chars(rownames(x))
+      colnames(x) <- replace_chars(colnames(x))
+        return(x[Maaslin2_16S_ITS, Maaslin2_16S_ITS])
+    } else {
+        return(x)
+    }
+})
+```
+
+```{r}
+# # Differential network plot
+# plot(diff_ECC_status_Maaslin2_species, 
+#      cexNodes = 0.5, 
+#      cexLegend = 1,
+#      cexLabels = 7,
+#      cexTitle = 1,
+#      mar = c(2,2,8,5),
+#      legendGroupnames = c("CF", "ECC"),
+#      legendPos = c(0.7,1.6))
+```
+
+
+```{r}
+# Convert 'diffMat' to a long data frame
+diffMat_long <- reshape2::melt(diff_ECC_status_Maaslin2_species$diffMat)
+names(diffMat_long) <- c("from", "to", "weight")
+
+# Convert 'classMat' to a long data frame and merge
+classMat_long <- reshape2::melt(diff_ECC_status_Maaslin2_species$classMat)
+names(classMat_long) <- c("from", "to", "classmat")
+
+# Merging the 'classmat' values into the diffMat_long data frame
+edge_data_1 <- merge(diffMat_long, classMat_long, by = c("from", "to"))
+
+# Filter out rows where weight is 0 or negligible (if needed)
+edge_data_2 <- edge_data_1 %>% 
+  filter(weight > 0.01) %>% 
+  mutate(linetype =  "solid")
+edge_data_2
+# Now, graph_data_1 is ready for use in ggraph
+```
+
+## To include the node information we can add node data
+
+```{r}
+node_data_1 = Plaque538_16S_ITS_Species_ps_CPM_2_Maaslin2_coef[ ,c("OTUs","ECC_status")]
+node_data_1
+node_data_2 = node_data_1 %>% 
+  rename(name = OTUs) %>% 
+  mutate(size_attribute = abs(ECC_status),  # Absolute value for size
+         color_attribute = ifelse(ECC_status >= 0, "ECC_associated", "CF_associated"), # Categorical value for color
+         shape_attribute = ifelse(ECC_status >= 0, 21, 22)) %>% 
+  select(-ECC_status)
+node_data_2
+```
+
+
+
+
+```{r}
+# # Convert edges dataframe to a graph_from_data_frame
+
+
+graph <- graph_from_data_frame(vertices   = node_data_2,
+                      d  = edge_data_2,
+                   directed = F)
+graph
+```
+
+
+```{r}
+V(graph)
+V(graph)$size_attribute
+```
+
+
+```{r}
+E(graph)
+E(graph)$weight
+```
+```{r}
+graph = tidygraph::as_tbl_graph(graph)
+graph
+```
+
+
+```{r}
+# Replace only the second underscore in each node name
+graph_2 <- graph %>%
+  tidygraph::activate(nodes) %>%
+  mutate(name = sub("([^_]*_[^_]*)_(*)", "\\1-\n\\2", name)) %>% 
+  mutate(size_attribute = size_attribute * 0.3) %>%
+  # Activate edges and scale weight
+  tidygraph::activate(edges) %>%
+  mutate(weight = weight * 0.3)
+
+# V(graph)$name <- str_replace(V(graph)$name, "([^_]*_[^_]*)_", "\\1-\n")
+
+
+# Define the color mapping for 'classmat'
+edge_colors <- c("2" = "red", "3" = "green", "4" = "hotpink", "6" = "blue", "7" = "aquamarine", "8" = "orange", "10" = "black")
+# Assume you have a corresponding set of labels for these colors
+edge_labels <- c("2" = "(-         0)", "3" = "(+        0)", "4" = "(0         -)", "7" = "(0        +)")
+
+stress_layout <- layout_with_dh(graph_2)
+# auto = stress # choose from auto, lgl, fr, dh, stress, (not to use kk, mds, circle )
+# auto keeps the layout of the graph as it is
+network_plot_with_Maaslin2 = ggraph(graph_2, layout = stress_layout) +
+  geom_edge_link2(aes(edge_width = weight, edge_color = factor(classmat)), edge_alpha = 0.6, linetype = "solid") +
+  scale_edge_color_manual(values = edge_colors, name = "Edge Class", labels = edge_labels) +
+  geom_node_point(aes(size = size_attribute, fill = color_attribute, shape = color_attribute ), color = "black", alpha = 0.9) +
+  scale_fill_manual(values = c("ECC_associated" = "darkorange4", "CF_associated" = "midnightblue"), name = "Nodes") +
+  geom_node_text(aes(label = name), size = 2.6, repel = TRUE, 
+                 nudge_x = 0, nudge_y = 0.03) +
+  theme_bw() +
+  
+  scale_size_continuous(range = c(3, 11)) +
+  guides(
+    size = FALSE,
+    # color = guide_legend(title = "Node Colors"),
+    edge_color = guide_legend(title = expression(atop("Associations", "      (CF,  ECC)"))),  # Use atop() for a newline in the legend title
+    edge_width = FALSE
+  ) +
+  theme(
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_blank(),
+    legend.position = "right",
+  legend.text = element_text(size = 12),  # Increases the text size in legends
+  legend.title = element_text(size = 14, face = "bold"),  # Increases the title size and makes it bold
+  legend.key.size = unit(10, "cm"),  # Increases the size of the legend keys (symbols)
+  legend.key.width = unit(0.75, "cm"),  # Optional: Adjusts the width of the legend keys if needed
+  legend.key.height = unit(0.75, "cm")  # Optional: Adjusts the height of the legend keys if needed
+
+  ) +
+  scale_shape_manual(values = c("ECC_associated" = 21, "CF_associated" = 22), name = "Nodes") # Assigning shapes 21 and 22 for the factor levels
+
+network_plot_with_Maaslin2 
+
+ggsave(filename = here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A6_Network_Analysis/network_plot_with_Maaslin2.png"),
+       plot = network_plot_with_Maaslin2,
+       width = 15,
+       height = 10, units = "in", dpi = 600)
+ggsave(filename = here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A6_Network_Analysis/network_plot_with_Maaslin2.tiff"),
+       plot = network_plot_with_Maaslin2,
+       width = 15,
+       height = 10, units = "in", dpi = 600)
+```
+
+# individual graphs for ECC and CF associated species
+assoMat1 = CF
+
+```{r}
+
+# Convert 'assoMat1' to a long data frame
+# assoMat1_CF_long <- reshape2::melt(diff_ECC_status_Maaslin2_species$assoMat1)
+# names(assoMat1_CF_long) <- c("from", "to", "weight")
+# assoMat1_CF_long
+
+assoMat1_CF_long = net_ECC_status[["edgelist1"]] %>% 
+  as.data.frame() %>%
+  select( v1,  v2, asso) %>%
+  rename(from = v1, to = v2, weight = asso) %>%
+  filter(from %in% Maaslin2_16S_ITS) %>%
+  filter(to %in% Maaslin2_16S_ITS)
+# Filter out rows where weight is 0 or negligible (if needed)
+assoMat1_CF_edge<- assoMat1_CF_long %>% 
+  filter(abs(weight) > 0.01) %>% 
+  mutate(linetype =  "solid") %>% 
+  mutate(classmat = case_when(weight < 0 ~ "1",
+                             weight > 0 ~ "2",
+                             TRUE ~ NA_character_))
+assoMat1_CF_edge
+# Now, graph_data_1 is ready for use in ggraph
+```
+
+```{r}
+assoMat1_CF_graph <- graph_from_data_frame(vertices   = node_data_2,
+                      d  = assoMat1_CF_edge,
+                   directed = F)
+assoMat1_CF_graph
+
+assoMat1_CF_graph = tidygraph::as_tbl_graph(assoMat1_CF_graph)
+assoMat1_CF_graph
+
+```
+```{r}
+# Replace only the second underscore in each node name
+assoMat1_CF_graph_2 <- assoMat1_CF_graph %>%
+  tidygraph::activate(nodes) %>%
+  mutate(name = sub("([^_]*_[^_]*)_(*)", "\\1-\n\\2", name)) %>% 
+  mutate(size_attribute = size_attribute * 0.3) %>%
+  # Activate edges and scale weight
+  tidygraph::activate(edges) %>%
+  mutate(weight = weight * 0.3)
+
+# V(graph)$name <- str_replace(V(graph)$name, "([^_]*_[^_]*)_", "\\1-\n")
+
+
+# Define the color mapping for 'classmat'
+edge_colors <- c("1" = "darkred", "2" = "darkgreen", "4" = "hotpink", "6" = "blue", "7" = "aquamarine", "8" = "orange", "10" = "black")
+# Assume you have a corresponding set of labels for these colors
+edge_labels <- c("2" = "(-         0)", "3" = "(+        0)", "4" = "(0         -)", "7" = "(0        +)")
+
+# stress_layout <- layout_with_dh(assoMat1_CF_graph_2)
+# auto = stress # choose from auto, lgl, fr, dh, stress, (not to use kk, mds, circle )
+# auto keeps the layout of the graph as it is
+assoMat1_CF_network_plot_with_Maaslin2 = ggraph(assoMat1_CF_graph_2, layout = stress_layout) +
+  geom_edge_link2(aes(edge_width = weight, edge_color = factor(classmat)), edge_alpha = 0.6, linetype = "solid") +
+  scale_edge_color_manual(values = edge_colors, name = "Edge Class", labels = edge_labels) +
+  geom_node_point(aes(size = size_attribute, fill = color_attribute, shape = color_attribute ), color = "black", alpha = 0.9) +
+  scale_fill_manual(values = c("ECC_associated" = "darkorange4", "CF_associated" = "midnightblue"), name = "Nodes") +
+  geom_node_text(aes(label = name), size = 2.6, repel = TRUE, 
+                 nudge_x = 0, nudge_y = 0.03) +
+  theme_bw() +
+  
+  scale_size_continuous(range = c(3, 11)) +
+  guides(
+    size = FALSE,
+    # color = guide_legend(title = "Node Colors"),
+    # edge_color = guide_legend(title = expression(atop("Associations", "      (CF,  ECC)"))),  # Use atop() for a newline in the legend title
+    edge_width = FALSE
+  ) +
+  theme(
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_blank(),
+    legend.position = "right",
+  legend.text = element_text(size = 12),  # Increases the text size in legends
+  legend.title = element_text(size = 14, face = "bold"),  # Increases the title size and makes it bold
+  legend.key.size = unit(10, "cm"),  # Increases the size of the legend keys (symbols)
+  legend.key.width = unit(0.75, "cm"),  # Optional: Adjusts the width of the legend keys if needed
+  legend.key.height = unit(0.75, "cm")  # Optional: Adjusts the height of the legend keys if needed
+
+  ) +
+  scale_shape_manual(values = c("ECC_associated" = 21, "CF_associated" = 22), name = "Nodes") # Assigning shapes 21 and 22 for the factor levels
+
+assoMat1_CF_network_plot_with_Maaslin2 
+```
+# individual graphs for ECC and CF associated species
+assoMat1 = CF
+assoMat2 = ECC
+```{r}
+
+# Convert 'assoMat1' to a long data frame
+assoMat2_ECC_long <- reshape2::melt(diff_ECC_status_Maaslin2_species$assoMat2)
+names(assoMat2_ECC_long) <- c("from", "to", "weight")
+assoMat2_ECC_long
+
+# Filter out rows where weight is 0 or negligible (if needed)
+assoMat2_ECC_edge<- assoMat2_ECC_long %>% 
+  filter(abs(weight) > 0.01) %>% 
+  mutate(linetype =  "solid") %>% 
+  mutate(classmat = case_when(weight < 0 ~ "1",
+                             weight > 0 ~ "2",
+                             TRUE ~ NA_character_))
+assoMat2_ECC_edge
+# Now, graph_data_1 is ready for use in ggraph
+```
+
+```{r}
+assoMat2_ECC_graph <- graph_from_data_frame(vertices   = node_data_2,
+                      d  = assoMat2_ECC_edge,
+                   directed = F)
+assoMat2_ECC_graph
+
+assoMat2_ECC_graph = tidygraph::as_tbl_graph(assoMat2_ECC_graph)
+assoMat2_ECC_graph
+
+```
+```{r}
+# Replace only the second underscore in each node name
+assoMat2_ECC_graph_2 <- assoMat2_ECC_graph %>%
+  tidygraph::activate(nodes) %>%
+  mutate(name = sub("([^_]*_[^_]*)_(*)", "\\1-\n\\2", name)) %>% 
+  mutate(size_attribute = size_attribute * 0.3) %>%
+  # Activate edges and scale weight
+  tidygraph::activate(edges) %>%
+  mutate(weight = weight * 0.3)
+
+# V(graph)$name <- str_replace(V(graph)$name, "([^_]*_[^_]*)_", "\\1-\n")
+
+
+# Define the color mapping for 'classmat'
+edge_colors <- c("1" = "darkred", "2" = "darkgreen", "4" = "hotpink", "6" = "blue", "7" = "aquamarine", "8" = "orange", "10" = "black")
+# Assume you have a corresponding set of labels for these colors
+edge_labels <- c("2" = "(-         0)", "3" = "(+        0)", "4" = "(0         -)", "7" = "(0        +)")
+
+# stress_layout <- layout_with_dh(assoMat2_ECC_graph_2)
+# auto = stress # choose from auto, lgl, fr, dh, stress, (not to use kk, mds, circle )
+# auto keeps the layout of the graph as it is
+assoMat2_ECC_network_plot_with_Maaslin2 = ggraph(assoMat2_ECC_graph_2, layout = stress_layout) +
+  geom_edge_link2(aes(edge_width = weight, edge_color = factor(classmat)), edge_alpha = 0.6, linetype = "solid") +
+  scale_edge_color_manual(values = edge_colors, name = "Edge Class", labels = edge_labels) +
+  geom_node_point(aes(size = size_attribute, fill = color_attribute, shape = color_attribute ), color = "black", alpha = 0.9) +
+  scale_fill_manual(values = c("ECC_associated" = "darkorange4", "CF_associated" = "midnightblue"), name = "Nodes") +
+  geom_node_text(aes(label = name), size = 2.6, repel = TRUE, 
+                 nudge_x = 0, nudge_y = 0.03) +
+  theme_bw() +
+  
+  scale_size_continuous(range = c(3, 11)) +
+  guides(
+    size = FALSE,
+    # color = guide_legend(title = "Node Colors"),
+    # edge_color = guide_legend(title = expression(atop("Associations", "      (CF,  ECC)"))),  # Use atop() for a newline in the legend title
+    edge_width = FALSE
+  ) +
+  theme(
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_blank(),
+    legend.position = "right",
+  legend.text = element_text(size = 12),  # Increases the text size in legends
+  legend.title = element_text(size = 14, face = "bold"),  # Increases the title size and makes it bold
+  legend.key.size = unit(10, "cm"),  # Increases the size of the legend keys (symbols)
+  legend.key.width = unit(0.75, "cm"),  # Optional: Adjusts the width of the legend keys if needed
+  legend.key.height = unit(0.75, "cm")  # Optional: Adjusts the height of the legend keys if needed
+
+  ) +
+  scale_shape_manual(values = c("ECC_associated" = 21, "CF_associated" = 22), name = "Nodes") # Assigning shapes 21 and 22 for the factor levels
+
+assoMat2_ECC_network_plot_with_Maaslin2 
+```
