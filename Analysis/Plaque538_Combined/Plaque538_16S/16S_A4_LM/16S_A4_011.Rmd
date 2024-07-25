@@ -35,7 +35,8 @@ library(ggbreak) #scale_x_break
 ### Import data
 
 ```{r}
-Plaque538_16S_AllOTU_5perc_ps =   readRDS(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A2_pseq_objects/Plaque538_16S_AllOTU_5perc_ps_17_vars_240306.Rds"))
+Plaque538_16S_AllOTU_5perc_ps =
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A2_pseq_objects/Plaque538_16S_AllOTU_5perc_ps_17_vars_240306.Rds"))
 Plaque538_16S_AllOTU_5perc_ps
 
 ## This is a good to remove the bad_empty names eg. "Unknown" also, if required
@@ -76,7 +77,8 @@ Plaque538_16S_Species_ps_CPM
 ### Import data
 
 ```{r}
-Plaque538_ITS_AllOTU_5perc_ps =   readRDS(here("Plaque538_Combined/Plaque538_ITS/Plaque538_ITS_A2_pseq_objects/Plaque538_ITS_AllOTU_5perc_ps_17_vars_240306.Rds"))
+Plaque538_ITS_AllOTU_5perc_ps =
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_ITS/ITS_A2_pseq_objects/Plaque538_ITS_AllOTU_5perc_ps_17_vars_240306.Rds"))
 Plaque538_ITS_AllOTU_5perc_ps
 
 ## This is a good to remove the bad_empty names eg. "Unknown" also, if required
@@ -392,13 +394,13 @@ heatmap_object_gg2
 
 
 
-ggsave(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/LinDa_Heatmap_Species_with_confounders.png"),
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A4_LM/LinDa_Heatmap_Species_with_confounders.png"),
       plot = heatmap_object_gg2, 
        width = 28,
        height = 41,
        units = "cm",
        dpi = 600)
-ggsave(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/LinDa_Heatmap_Species_with_confounders.tiff"),
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A4_LM/LinDa_Heatmap_Species_with_confounders.tiff"),
       plot = heatmap_object_gg2, 
        width = 28,
        height = 41,
@@ -469,7 +471,7 @@ print(combined_plot) +
         )
 
 # Save the plot
-ggsave(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/LinDA_taxa_barplot.png"),
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A4_LM/LinDA_taxa_barplot.png"),
        plot = combined_plot,
        width = 13, height = 10, dpi = 300)
 ```
@@ -521,11 +523,11 @@ print(combined_plot) +
         axis.text.y = element_text(colour = "black", family = "Ariel", size = 10))
 
 # Save the plot
-ggsave(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/LinDA_taxa_barplot.png"),
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A4_LM/LinDA_taxa_barplot.png"),
        plot = combined_plot,
        width = 10, height = 10, dpi = 300)
 # Save the plot
-ggsave(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/LinDA_taxa_barplot.tiff"),
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A4_LM/LinDA_taxa_barplot.tiff"),
        plot = combined_plot,
        width = 10, height = 10, dpi = 300)
 ```

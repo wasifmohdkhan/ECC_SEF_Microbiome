@@ -22,13 +22,13 @@ library(phyloseq)
 
 # Read data
 ```{r}
-# Read data from RP_230626_Plaque538_Combined
-Plaque538_16S_AllOTU <- read.table(
-  here("Data/Plaque554_16S_AllOTU_formatted.txt"),
+# Read data RP_230626_Plaque538_Combined
+Plaque538_ITS_AllOTU <- read.table(
+  here("Data/Plaque554_ITS_AllOTU_formatted.txt"),
   check.names = F,
   header = T,
   sep = "\t")
-Plaque538_16S_AllOTU %>% print()
+Plaque538_ITS_AllOTU %>% print()
 
 Plaque_538_meta <- read.table(
   here("Data/Samples538_metadata_17_columns_240306.txt"),
@@ -41,13 +41,12 @@ Plaque_538_meta
 # OTU table
 ```{r}
 
-Plaque538_16S_AllOTU_2 <- Plaque538_16S_AllOTU %>%
-  column_to_rownames("OTUs_16S") %>%
+Plaque538_ITS_AllOTU_2 <- Plaque538_ITS_AllOTU %>%
+  column_to_rownames("OTUs_ITS") %>%
   select(all_of(Plaque_538_meta$sampleid))
 
-Plaque538_16S_AllOTU_2
+Plaque538_ITS_AllOTU_2
 ```
-
 # Metadata
 
 ```{r}
@@ -60,7 +59,7 @@ Plaque_538_meta_2
 # Construct taxonomy matrix
 
 ```{r}
-Plaque538_16S_taxmat <- data.frame(OTUs = rownames(Plaque538_16S_AllOTU_2)) %>%
+Plaque538_ITS_taxmat <- data.frame(OTUs = rownames(Plaque538_ITS_AllOTU_2)) %>%
   mutate(Taxa = OTUs) %>%
   column_to_rownames("OTUs") %>%
   separate(Taxa,
@@ -68,33 +67,36 @@ Plaque538_16S_taxmat <- data.frame(OTUs = rownames(Plaque538_16S_AllOTU_2)) %>%
            into = c('Kingdom', "Phylum", "Class", "Order", "Family", "Genus", "Species")) %>%
   as.matrix()
 
-Plaque538_16S_taxmat %>% head()
+Plaque538_ITS_taxmat %>% head()
 ```
-
 # Construct phyloseq object
 
+
 ```{r}
-Plaque538_16S_AllOTU_ps <- phyloseq(
-  otu_table(Plaque538_16S_AllOTU_2,
+Plaque538_ITS_AllOTU_ps <- phyloseq(
+  otu_table(Plaque538_ITS_AllOTU_2,
             taxa_are_rows = T),
   sample_data(Plaque_538_meta_2),
-  tax_table(Plaque538_16S_taxmat)
+  tax_table(Plaque538_ITS_taxmat)
 )
 
-Plaque538_16S_AllOTU_ps
+Plaque538_ITS_AllOTU_ps
 ```
 
 # Filter and save data
 ```{r}
-Plaque538_16S_AllOTU_5perc_ps <- phyloseq_filter_prevalence(
-  Plaque538_16S_AllOTU_ps,
+Plaque538_ITS_AllOTU_5perc_ps <- phyloseq_filter_prevalence(
+  Plaque538_ITS_AllOTU_ps,
   prev.trh = 0.05
 )
 
-Plaque538_16S_AllOTU_5perc_ps
+Plaque538_ITS_AllOTU_5perc_ps
 
 saveRDS(
-  Plaque538_16S_AllOTU_5perc_ps,
-  file = "Plaque538_16S_AllOTU_5perc_ps_17_vars_240306.Rds"
+  Plaque538_ITS_AllOTU_5perc_ps,
+  file = "Plaque538_ITS_AllOTU_5perc_ps_17_vars_240306.Rds"
 )
 ```
+
+
+
