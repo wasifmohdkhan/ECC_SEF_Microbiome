@@ -1,5 +1,5 @@
 ---
-title: "patchwork"
+title: "patchwork to combine the figures"
 output: html_document
 date: "2024-02-29"
 ---
@@ -23,10 +23,10 @@ library(ggplot2)
 
 ```{r}
 Maaslin2_Heatmap_Species_without_confounders <-
-  readRDS(here("Plaque538_Combined/Plaque538_16S/16S_A4_LM/Maaslin2_Heatmap_Species_without_confounders.rds"))
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A2_pseq_objects/Maaslin2_Heatmap_Species_without_confounders.rds"))
 
 Maaslin2_Heatmap_Genus_without_confounders <-
-  readRDS(here("Plaque538_Combined/Plaque538_16S/16S_A4_LM/Maaslin2_Heatmap_Genus_without_confounders.rds"))
+  readRDS(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A2_pseq_objects/Maaslin2_Heatmap_Genus_without_confounders.rds"))
 
 ```
 
@@ -51,10 +51,10 @@ combined_Maaslin2_Species_Genus_heatmap <- free(Maaslin2_Heatmap_Species_without
 # Apply a global theme with larger tag text
 theme_set(theme_light() )
 
-ggsave(here("Plaque538_Combined/Plaque538_16S/16S_A4_LM/combined_Maaslin2_Species_Genus_heatmap.png"), 
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A2_pseq_objects/combined_Maaslin2_Species_Genus_heatmap.png"), 
        combined_Maaslin2_Species_Genus_heatmap,
        width = 55, height = 64, units = "cm", dpi = 600)
-ggsave(here("Plaque538_Combined/Plaque538_16S/16S_A4_LM/combined_Maaslin2_Species_Genus_heatmap.tiff"), 
+ggsave(here("Analysis/Plaque538_Combined/Plaque538_16S/16S_A2_pseq_objects/combined_Maaslin2_Species_Genus_heatmap.tiff"), 
        combined_Maaslin2_Species_Genus_heatmap,
        width = 55, height = 64, units = "cm", dpi = 600)
 ```
