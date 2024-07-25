@@ -1,0 +1,404 @@
+---
+title: "Maaslin2 on 16S and ITS with NO confounders Genus"
+output: html_document
+date: "2023-10-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(here)
+library(tidyverse)
+library(microbiome)
+library(microbiomeMarker)
+library(phyloseq)
+library(pheatmap)
+library(RColorBrewer)
+# Load the package
+library(ComplexHeatmap)
+library(circlize)
+library(Maaslin2)
+```
+
+```{r}
+```
+
+### Import data
+
+```{r}
+Plaque538_16S_AllOTU_5perc_ps =   readRDS(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A2_pseq_objects/Plaque538_16S_AllOTU_5perc_ps_17_vars_240306.Rds"))
+Plaque538_16S_AllOTU_5perc_ps
+
+## This is a good to remove the bad_empty names eg. "Unknown" also, if required
+## the aggregate_taxa only keeps the names at a particular tax-level eg Genus with prerix "g__"
+Plaque538_16S_Genus_ps = 
+  microbiomeMarker::aggregate_taxa( Plaque538_16S_AllOTU_5perc_ps, level = "Genus", verbose = FALSE) %>%
+  phyloseq::tax_glom(
+  .,
+  taxrank = "Genus",
+  bad_empty = c(NA, "", " ", "\t", "__") ) 
+Plaque538_16S_Genus_ps
+```
+
+
+
+```{r}
+# Extract and modify taxa names
+new_taxa_names_16S_Genus <- gsub("g__", "B_", taxa_names(Plaque538_16S_Genus_ps))
+
+# Update taxa names in-place in the phyloseq object
+taxa_names(Plaque538_16S_Genus_ps) <- new_taxa_names_16S_Genus
+
+# Confirm that the 's__' prefix has been removed
+head(taxa_names(otu_table(Plaque538_16S_Genus_ps)))
+
+```
+### Normalize in Microbiomemarker
+
+```{r}
+## AFter filtering some of the samples have all OTUs 0, hence it is important to add one to mitigate this problem
+Plaque538_16S_Genus_ps_CPM =
+  phyloseq::prune_samples(sample_sums(Plaque538_16S_Genus_ps) != 0, Plaque538_16S_Genus_ps) %>% 
+  microbiomeMarker::normalize (., "CPM")
+
+Plaque538_16S_Genus_ps_CPM
+```
+
+### Import data
+
+```{r}
+Plaque538_ITS_AllOTU_5perc_ps =   readRDS(here("Plaque538_Combined/Plaque538_ITS/Plaque538_ITS_A2_pseq_objects/Plaque538_ITS_AllOTU_5perc_ps_17_vars_240306.Rds"))
+Plaque538_ITS_AllOTU_5perc_ps
+
+## This is a good to remove the bad_empty names eg. "Unknown" also, if required
+## the aggregate_taxa only keeps the names at a particular tax-level eg Genus with prerix "g__"
+Plaque538_ITS_Genus_ps = 
+  microbiomeMarker::aggregate_taxa( Plaque538_ITS_AllOTU_5perc_ps, level = "Genus", verbose = FALSE) %>%
+  phyloseq::tax_glom(
+  .,
+  taxrank = "Genus",
+  bad_empty = c(NA, "", " ", "\t", "__") ) 
+Plaque538_ITS_Genus_ps
+```
+
+
+```{r}
+# Extract and modify taxa names
+new_taxa_names_ITS_Genus <- gsub("g__", "F_", taxa_names(Plaque538_ITS_Genus_ps))
+
+# Update taxa names in-place in the phyloseq object
+taxa_names(Plaque538_ITS_Genus_ps) <- new_taxa_names_ITS_Genus
+
+# Confirm that the 's__' prefix has been removed
+otu_table(Plaque538_ITS_Genus_ps) %>% as.data.frame()
+```
+
+
+### Normalize in Microbiomemarker
+
+```{r}
+## AFter filtering some of the samples have all OTUs 0, hence it is important to add one to mitigate this problem
+Plaque538_ITS_Genus_ps_CPM =
+  phyloseq::prune_samples(sample_sums(Plaque538_ITS_Genus_ps) != 0, Plaque538_ITS_Genus_ps) %>% 
+  microbiomeMarker::normalize (., "CPM")
+
+Plaque538_ITS_Genus_ps_CPM
+```
+## Remove the variables not required from the sample data
+```{r}
+# remove the variables not required
+variables_to_remove <- c("Child_overall_health", "Material_depr_score")
+
+
+Plaque538_16S_Genus_ps_CPM@sam_data <- 
+  Plaque538_16S_Genus_ps_CPM@sam_data[, !(colnames(Plaque538_16S_Genus_ps_CPM@sam_data) %in% variables_to_remove)]
+Plaque538_16S_Genus_ps_CPM
+
+Plaque538_ITS_Genus_ps_CPM@sam_data <- 
+  Plaque538_ITS_Genus_ps_CPM@sam_data[, !(colnames(Plaque538_ITS_Genus_ps_CPM@sam_data) %in% variables_to_remove)]
+Plaque538_ITS_Genus_ps_CPM
+
+```
+
+## Merge the two phyloseq objects
+```{r}
+# Plaque538_16S_ITS_Genus_ps = merge_phyloseq(Plaque538_16S_Genus_ps_CPM,Plaque538_ITS_Genus_ps_CPM)#,Plaque538_16S_KEGG_ps)
+# Plaque538_16S_ITS_Genus_ps
+```
+
+We will apply Maaslin2 separately on 16S and ITS data and later combine the output to get a single heatmap
+
+```{r}
+confounders = c()
+# confounders = c("Sex", "Age", "Urban_status")
+```
+
+
+## Maaslin2 on 16S with confounders
+
+```{r}
+Maaslin2_output_dir = here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/Maaslin2_240216")
+# if file error quit sesssion and connect
+```
+
+
+```{r message=FALSE}
+# Initialize lists to temporarily hold the data
+list_coef_16S <- list()
+list_qval_16S <- list()
+
+pseq = Plaque538_16S_Genus_ps_CPM
+
+# Assuming pseq is your data frame or a similar object
+col_without_confounders = setdiff(colnames(sample_data(pseq)), confounders)
+
+# Iterate through each variable to run Maaslin2 and filter results
+for(var in col_without_confounders) {
+#for(var in c("ECC_status", "Child_dental_health")) { # for try
+  # Run Maaslin2 analysis
+  Maaslin2_res <- Maaslin2(input_data = t(otu_table(pseq)),
+         input_metadata = sample_data(pseq) %>% data.frame(),
+         output = Maaslin2_output_dir,
+         normalization = "CLR",
+         transform = "NONE",
+         fixed_effects =  c(var, confounders),
+         cores = 40,
+         max_significance = 0.05,
+           )
+  
+    # Filter and transform the output data frame
+  filtered_df <- Maaslin2_res$results %>% 
+                 data.frame() %>% 
+                  rename(OTUs = feature ) %>% 
+                 filter(metadata  == var & qval < 0.01) %>% 
+                 dplyr::select(OTUs, coef, qval)
+  
+  # Rename the coef and qval columns to the current variable
+  filtered_df_coef <- filtered_df %>% dplyr::select(OTUs, coef) %>% 
+                     rename(!!var := coef)
+                     
+  filtered_df_qval <- filtered_df %>% dplyr::select(OTUs, qval) %>% 
+                      rename(!!var := qval)
+  
+  # Store in lists
+  list_coef_16S[[var]] <- filtered_df_coef
+  list_qval_16S[[var]] <- filtered_df_qval
+}
+
+final_df_coef_16S <- list_coef_16S[[1]]
+for(i in 2:length(list_coef_16S)) {
+  final_df_coef_16S <- full_join(final_df_coef_16S, list_coef_16S[[i]], by = "OTUs")
+}
+
+final_df_qval_16S <- list_qval_16S[[1]]
+for(i in 2:length(list_qval_16S)) {
+  final_df_qval_16S <- full_join(final_df_qval_16S, list_qval_16S[[i]], by = "OTUs")
+}
+```
+
+## Maaslin2 on ITS
+```{r}
+# Initialize lists to temporarily hold the data
+list_coef_ITS <- list()
+list_qval_ITS <- list()
+
+pseq = Plaque538_ITS_Genus_ps_CPM
+
+# Assuming pseq is your data frame or a similar object
+col_without_confounders = setdiff(colnames(sample_data(pseq)), confounders)
+
+# Iterate through each variable to run Maaslin2 and filter results
+for(var in col_without_confounders) {
+#for(var in c("ECC_status", "Child_dental_health")) { # for try
+  # Run Maaslin2 analysis
+  Maaslin2_res <- Maaslin2(input_data = t(otu_table(pseq)),
+         input_metadata = sample_data(pseq) %>% data.frame(),
+         output = Maaslin2_output_dir, # if file error quit sesssion and connect
+         normalization = "CLR",
+         transform = "NONE",
+         fixed_effects =  c(var, confounders),
+         cores = 40,
+         max_significance = 0.05,
+           )
+  
+    # Filter and transform the output data frame
+  filtered_df <- Maaslin2_res$results %>% 
+                 data.frame() %>% 
+                  rename(OTUs = feature ) %>% 
+                 filter(metadata  == var & qval < 0.01) %>% 
+                 dplyr::select(OTUs, coef, qval)
+  
+  # Rename the coef and qval columns to the current variable
+  filtered_df_coef <- filtered_df %>% dplyr::select(OTUs, coef) %>% 
+                     rename(!!var := coef)
+                     
+  filtered_df_qval <- filtered_df %>% dplyr::select(OTUs, qval) %>% 
+                      rename(!!var := qval)
+  
+  # Store in lists
+  list_coef_ITS[[var]] <- filtered_df_coef
+  list_qval_ITS[[var]] <- filtered_df_qval
+}
+
+final_df_coef_ITS <- list_coef_ITS[[1]]
+for(i in 2:length(list_coef_ITS)) {
+  final_df_coef_ITS <- full_join(final_df_coef_ITS, list_coef_ITS[[i]], by = "OTUs")
+}
+
+final_df_qval_ITS <- list_qval_ITS[[1]]
+for(i in 2:length(list_qval_ITS)) {
+  final_df_qval_ITS <- full_join(final_df_qval_ITS, list_qval_ITS[[i]], by = "OTUs")
+}
+
+
+```
+## combine 16S and ITS
+```{r}
+final_df_coef_16S_ITS = rbind(final_df_coef_16S,
+                             final_df_coef_ITS)
+final_df_coef_16S_ITS
+
+
+final_df_qval_16S_ITS = rbind(final_df_qval_16S,
+                      final_df_qval_ITS)
+
+final_df_qval_16S_ITS
+```
+
+
+
+
+```{r}
+final_df_coef_2 = final_df_coef_16S_ITS %>% 
+  column_to_rownames("OTUs") %>% 
+  mutate(across(everything(), ~replace(., is.na(.), 0)))
+
+final_df_qval_2 = final_df_qval_16S_ITS %>% 
+  column_to_rownames("OTUs") %>% 
+  mutate(across(everything(), ~replace(., is.na(.), 1)))
+
+# Convert data frames to matrices
+mat_coef <- as.matrix(final_df_coef_2)# %>%  t()
+mat_qval <- as.matrix(final_df_qval_2)# %>%  t()
+
+# Initialize an empty matrix with the same dimensions as mat_qval
+sig_matrix <- mat_qval %>%
+    apply(2, function(col) {
+      sapply(col, function(qval) {
+        if (qval < 0.001) {
+          return("**")
+        } else if (qval < 0.01) {
+          return("*")
+        } else {
+          return("")
+        }
+      })
+    }) %>% as.matrix()
+# sig_matrix
+
+# mat_coef = t(mat_coef)
+# sig_matrix = t(sig_matrix)
+
+# Define color breaks
+max_val <- max(abs(mat_coef), na.rm = TRUE)
+breaks <- seq(-max_val, max_val, length.out = 51)
+
+
+# bottom_anno <- anno_text(
+#   rep("Socioeconomic and behavioral variables", ncol(mat_coef)), 
+#   location = NULL, just = "center", 
+#   gp = gpar(fontsize = 10)
+# )
+
+# Define the values
+values <- c(-2, -1, 0, 1, 2)
+
+# Define the labels
+labels <- c("Caries-free", "", "", "", "ECC")
+
+# Generate the heatmap
+heatmap_object <- pheatmap ::pheatmap(mat_coef,
+                           color = colorRampPalette(c("#191970", "white", "darkred"))(50),
+                           cellwidth = 25,
+                           cellheight = 15,
+                           fontsize_row = 9,
+                           fontsize_col = 8,
+                           breaks = breaks,
+                           display_numbers = sig_matrix, # Adding annotation
+                           number_color = "black",
+                           treeheight_row = 0,
+                           treeheight_col = 0,
+                           fontsize = 10,
+                           angle_col = "45",
+                           main = "",  # Adding Title
+                           width = 26,
+                           height = 70,
+                           legend = TRUE,
+                           legend_breaks = values,
+                           # legend_labels = labels,
+                           name = "Coefficient\nEstimates",
+                           row_title = "Socioeconomic and behavioral variables",
+                           row_names_side = "right",
+                           cluster_cols = FALSE
+                           #column_title = "Socioeconomic and behavioral variables",
+                           # bottom_annotation =  bottom_anno )
+                           # labels_row = "Microbial features",
+                           # labels_col = "Socioeconomic and behavioral variables"
+)
+
+heatmap_object_gg = ggplotify::as.ggplot(heatmap_object)
+```
+
+```{r}
+
+Maaslin2_Heatmap_Genus_without_confounders =  heatmap_object_gg +
+  theme_minimal() +  # Using a minimal theme as a base
+   theme(
+    panel.background = element_rect(fill = "white", colour = NA),  # White panel background
+    plot.background = element_rect(fill = "white", colour = NA),  # White plot background
+    panel.grid.major = element_blank(),  # No major grid lines
+    panel.grid.minor = element_blank(),  # No minor grid lines
+    axis.text.x = element_blank(),  # Remove x-axis text/labels
+    axis.text.y = element_blank(),  # Remove y-axis text/labels
+    axis.ticks = element_blank(),  # Remove all axis ticks
+    axis.title.x = element_text(size = 18, hjust = .30),  # Move x-axis title slightly left
+    axis.title.y = element_text(size = 18, angle = 90),  # Customize y-axis title size and angle
+  ) +
+  # annotate("text", x = 1, y = 1, label = "Coefficient Estimates", hjust = 1, vjust = 1.2, size = 5, colour = "black") +
+  #  annotate(
+  #   "text", x = 1, y = 1,
+  #   label = expression(paste("*", italic("q"), "-value < 0.01")),
+  #   hjust = 1.2, vjust = 16, size = 5, colour = "black"
+  # ) +
+  # annotate(
+  #   "text", x = 1, y = 1,
+  #   label = expression(paste("**", italic("q"), "-value < 0.001")),
+  #   hjust = 1.1, vjust = 18, size = 5, colour = "black"
+  # ) +
+  labs(
+    x = "Host Variables",  # Replace with your actual x-axis title
+    y = "Microbial Genus (Bacteria and Fungi)",  # Replace with your actual y-axis title
+  )
+
+Maaslin2_Heatmap_Genus_without_confounders
+
+saveRDS(Maaslin2_Heatmap_Genus_without_confounders,
+        here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/Maaslin2_Heatmap_Genus_without_confounders.rds"))
+
+# ggsave(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/Maaslin2_Heatmap_Genus_without_confounders.png"),
+#       plot = heatmap_object_gg2, 
+#        width = 21,
+#        height = 28,
+#        units = "cm",
+#        dpi = 300)
+```
+   
+
+

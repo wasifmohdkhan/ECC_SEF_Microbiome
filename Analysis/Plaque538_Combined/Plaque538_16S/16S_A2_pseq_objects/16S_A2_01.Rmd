@@ -1,0 +1,174 @@
+---
+title: "Constructing phyloseq object"
+output: html_document
+date: "2023-10-04"
+---
+
+## R Markdown
+
+```{r}
+# Clean workspace
+rm(list = ls())
+```
+
+
+```{r}
+# Load required libraries
+library(tidyverse)
+library(metagMisc)
+library(here)
+library(phyloseq)
+```
+
+# Read data
+```{r}
+# Read data from RP_230626_Plaque538_Combined
+Plaque538_16S_AllOTU <- read.table(
+  here("Data/Plaque554_16S_AllOTU_formatted.txt"),
+  check.names = F,
+  header = T,
+  sep = "\t")
+Plaque538_16S_AllOTU %>% print()
+
+Plaque_538_meta <- read.table(
+  here("Data/Samples538_metadata_17_columns_240306.txt"),
+  check.names = F,
+  header = T,
+  sep = "\t")
+Plaque_538_meta
+```
+
+# OTU table
+```{r}
+
+Plaque538_16S_AllOTU_2 <- Plaque538_16S_AllOTU %>%
+  column_to_rownames("OTUs_16S") %>%
+  select(all_of(Plaque_538_meta$sampleid))
+
+Plaque538_16S_AllOTU_2
+```
+
+# Metadata
+
+```{r}
+Plaque_538_meta_2 <- Plaque_538_meta %>%
+  column_to_rownames("sampleid")
+
+Plaque_538_meta_2
+```
+
+# Construct taxonomy matrix
+
+```{r}
+Plaque538_16S_taxmat <- data.frame(OTUs = rownames(Plaque538_16S_AllOTU_2)) %>%
+  mutate(Taxa = OTUs) %>%
+  column_to_rownames("OTUs") %>%
+  separate(Taxa,
+           sep = ";",
+           into = c('Kingdom', "Phylum", "Class", "Order", "Family", "Genus", "Species")) %>%
+  as.matrix()
+
+Plaque538_16S_taxmat %>% head()
+```
+
+# Construct phyloseq object
+
+```{r}
+Plaque538_16S_AllOTU_ps <- phyloseq(
+  otu_table(Plaque538_16S_AllOTU_2,
+            taxa_are_rows = T),
+  sample_data(Plaque_538_meta_2),
+  tax_table(Plaque538_16S_taxmat)
+)
+
+Plaque538_16S_AllOTU_ps
+```
+
+# Filter and save data
+```{r}
+Plaque538_16S_AllOTU_5perc_ps <- phyloseq_filter_prevalence(
+  Plaque538_16S_AllOTU_ps,
+  prev.trh = 0.05
+)
+
+Plaque538_16S_AllOTU_5perc_ps
+
+saveRDS(
+  Plaque538_16S_AllOTU_5perc_ps,
+  file = "Plaque538_16S_AllOTU_5perc_ps_17_vars_240306.Rds"
+)
+```
+
+### try approaches to select a particular level
+
+```{r}
+# Aggregate at Genus level
+Plaque538_16S_Species_5perc_ps <- tax_glom(
+  Plaque538_16S_AllOTU_5perc_ps,
+  taxrank = "Species",
+  bad_empty = c(NA, "", " ", "\t", "__")
+)
+
+Plaque538_16S_Species_5perc_ps %>% otu_table() %>% rownames()
+```
+
+
+```{r}
+microbiomeMarker::aggregate_taxa(Plaque538_16S_AllOTU_5perc_ps,
+                                 level = "Species",
+                                 verbose = FALSE) %>%
+  otu_table() %>%
+  rownames()
+```
+
+
+```{r}
+## This is a good to remove the bad_empty names eg. "Unknown" also, if required
+## the aggregate_taxa only keeps the names at a particular tax-level eg genus with prerix "g__"
+microbiomeMarker::aggregate_taxa( Plaque538_16S_AllOTU_5perc_ps,
+                                  level = "Species",
+                                  verbose = FALSE) %>% 
+  phyloseq::tax_glom( .,
+                      taxrank = "Species",
+  bad_empty = c(NA,
+                "",
+                " ",
+                "\t",
+                "__") ) %>% 
+  otu_table() %>%
+  rownames()
+
+```
+
+```{r}
+# Access the OTU table
+otu_counts <- otu_table(Plaque538_16S_Species_5perc_ps)
+
+# Sum the reads for each sample
+sample_sums <- colSums(otu_counts)
+
+# Apply log10 transformation
+log_sample_sums <- log10(sample_sums)
+
+# Convert the log-transformed sample sums into a data frame
+data_frame <- data.frame(LogReadCounts = log_sample_sums)
+
+# Create the histogram with ggplot2 and add counts on top of each bar
+p <- ggplot(data_frame,
+            aes(x = LogReadCounts)) +
+  geom_histogram(aes(y = ..count..),
+                 binwidth = 1,
+                 fill = "blue",
+                 alpha = 0.5) +
+  geom_text(stat = 'bin',
+            aes(y = ..count..,
+                label = ..count..),
+            vjust = -0.5,
+            binwidth = 1) +
+  labs(title = "Histogram of Log10-Transformed Read Counts",
+       x = "Log10(Number of Reads)",
+       y = "Number of Samples")
+
+# Print the plot
+print(p)
+```

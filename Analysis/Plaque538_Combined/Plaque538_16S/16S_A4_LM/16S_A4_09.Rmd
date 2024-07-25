@@ -1,0 +1,469 @@
+---
+title: "correlation and log odds change SODH"
+output: html_document
+date: "2023-10-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(here)
+library(tidyverse)
+library(microbiome)
+library(microbiomeMarker)
+library(phyloseq)
+library(pheatmap)
+library(RColorBrewer)
+# Load the package
+library(ComplexHeatmap)
+library(ggcorrplot) 
+library(patchwork)
+library(Hmisc) # rcorr
+
+```
+
+
+### Import data
+
+```{r}
+Plaque538_16S_AllOTU_5perc_ps =   readRDS(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A2_pseq_objects/Plaque538_16S_AllOTU_5perc_ps_17_vars_240306.Rds"))
+Plaque538_16S_AllOTU_5perc_ps
+
+## This is a good to remove the bad_empty names eg. "Unknown" also, if required
+## the aggregate_taxa only keeps the names at a particular tax-level eg Species with prerix "g__"
+Plaque538_16S_Species_ps = 
+  microbiomeMarker::aggregate_taxa( Plaque538_16S_AllOTU_5perc_ps, level = "Species", verbose = FALSE) %>%
+  phyloseq::tax_glom(
+  .,
+  taxrank = "Species",
+  bad_empty = c(NA, "", " ", "\t", "__") ) 
+Plaque538_16S_Species_ps
+```
+
+
+```{r}
+# Extract sample data
+sample_data <- data.frame(sample_data(Plaque538_16S_Species_ps))
+sample_data = sample_data %>% 
+  relocate(ECC_status, .after = last_col()) %>% 
+  ## to have age effect in years
+  # mutate(Age = Age/12)  %>% 
+  dplyr::select(-Child_overall_health) %>% 
+  mutate_all(as.double)
+sample_data
+```
+```{r}
+# Function to compute p-values for correlation coefficients
+cor_pmat <- function(data) {
+  n <- ncol(data)
+  p_matrix <- matrix(NA, n, n)
+  colnames(p_matrix) <- colnames(data)
+  rownames(p_matrix) <- colnames(data)
+  
+  for (i in 1:(n - 1)) {
+    for (j in (i + 1):n) {
+      test_result <- cor.test(data[, i], data[, j], method= "spearman", use = "complete.obs")
+      p_matrix[i, j] <- test_result$p.value
+      p_matrix[j, i] <- test_result$p.value
+    }
+  }
+  diag(p_matrix) <- 0  # P-values on the diagonal can be set to 0 or NA
+  return(p_matrix)
+}
+```
+
+
+
+```{r}
+# Install and load the corrplot package
+#install.packages("corrplot")
+library(corrplot)
+
+# Calculate correlation matrix
+cor_matrix <- cor(sample_data, use = "complete.obs", method = "spearman" )  # remove 'use' argument if no NAs
+# cor_matrix <- rcorr( as.matrix(sample_data), "spearman" )  # remove 'use' argument if no NAs
+
+# Compute the p-value matrix
+p_values <- cor_pmat(as.matrix(sample_data))
+
+
+# Create a PNG file to save the plot
+# png(filename = here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/Correlation_plot.png"),
+    # width = 15, height = 15,units = "cm", res = 300)
+# Create correlation plot
+# corrplot_SODH = corrplot(cor_matrix, method = "circle", type = "lower", tl.col = "black", tl.srt = 90)
+```
+
+
+```{r}
+ggcorrplot_SODH = ggcorrplot(cor_matrix,
+           method = "circle",
+           # insig = "pch",
+           type = "lower",
+           # pch = 2, # Add p-values
+           p.mat = p_values, # Add p-values
+           legend.title = "Correlation\ncoefficient",
+           tl.col = "black",
+           digits = 2,
+           tl.srt = 90,
+           lab = FALSE, # Do not add correlation coefficient labels
+           colors = c("firebrick4", "white", "navyblue"), # Slightly darker color palette
+           #title = "My Correlation Plot",
+           ggtheme = theme_bw() # A clean ggplot2 theme
+) 
+
+ggcorrplot_SODH = ggcorrplot_SODH + 
+  theme(
+    text = element_text(color = "black", size = 12), # Sets global text color to black and size to 12
+    axis.title = element_text(color = "black", size = 11), # Ensures axis titles are black and size to 11
+    axis.text.y = element_text(color = "black", size = 11, ), # Specifically adjusts x-axis text
+    axis.text.x = element_text(color = "black", size = 11, angle = 45, hjust = 1, vjust = 1),
+    legend.text = element_text(color = "black", size = 10), # Ensures legend text is black and size to 12
+    legend.title = element_text(color = "black", size = 12) # Ensures legend title is black and size to 10
+  )
+
+ggcorrplot_SODH %>% print() 
+
+saveRDS(ggcorrplot_SODH,
+        here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/ggcorrplot_SODH.Rds"))
+```
+
+```{r}
+corr = round(cor_matrix, 1)
+
+# Get p-value matrix
+p.df = as.data.frame(p_values)
+
+# Function to get asteriks
+labs.function = function(x){
+  case_when(x >= 0.05 ~ "",
+            x < 0.05 & x >= 0.01 ~ "*",
+            x < 0.01 & x >= 0.001 ~ "**",
+            x < 0.001 ~ "***")
+}
+
+# Get asteriks matrix based on p-values
+p.labs = p.df  %>%                      
+  mutate_all(labs.function)
+
+# Reshaping asteriks matrix to match ggcorrplot data output
+p.labs$Var1 = as.factor(rownames(p.labs))
+p.labs = reshape2::melt(p.labs, id.vars = "Var1", variable.name = "Var2", value.name = "lab")
+
+# Initial ggcorrplot
+ggcorrplot_SODH_2 = ggcorrplot(corr,
+                               method = "circle",
+                               # hc.order = TRUE,
+                               type = "lower",
+                               lab_size = 2,
+                               legend.title = "Correlation\ncoefficient",
+                               colors = c("firebrick4", "white", "navyblue"), # Slightly darker color palette
+                               ggtheme = theme_bw(), # A clean ggplot2 theme
+                               lab = TRUE) 
+
+# Subsetting asteriks matrix to only those rows within ggcorrplot data
+p.labs$in.df = ifelse(is.na(match(paste0(p.labs$Var1, p.labs$Var2), 
+                                  paste0(ggcorrplot_SODH_2[["data"]]$Var1, ggcorrplot_SODH_2[["data"]]$Var2))),
+                      "No", "Yes")
+
+p.labs = select(filter(p.labs, in.df == "Yes"), -in.df)
+
+# # Add asteriks to ggcorrplot
+# ggcorrplot_SODH_2 = ggcorrplot_SODH_2 + 
+#   geom_text(aes(x = p.labs$Var1, 
+#                 y = p.labs$Var2), 
+#             label = p.labs$lab, 
+#             nudge_y = 0.25, 
+#             size = 2)
+
+ggcorrplot_SODH_2 = ggcorrplot_SODH_2 + 
+  # theme_bw() +
+  theme(
+    text = element_text(color = "black", size = 8), # Sets global text color to black and size to 12
+    axis.title = element_text(color = "black", size = 0), # 
+    axis.text.y = element_text(color = "black", size = 11, ), # Specifically adjusts x-axis text
+    axis.text.x = element_text(color = "black", size = 11, angle = 45, hjust = 1, vjust = 1),
+    legend.text = element_text(color = "black", size = 10), # Ensures legend text is black and size to 12
+    legend.title = element_text(color = "black", size = 12), # Ensures legend title is black and size to 10
+    # 
+  )
+
+ggcorrplot_SODH_2 %>% print()
+```
+
+
+```{r}
+saveRDS(ggcorrplot_SODH_2,
+        here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/ggcorrplot_SODH_2.Rds"))
+```
+
+
+# Due to the high correlation between SEFI and MDS
+```{r}
+sample_data = sample_data %>% 
+  dplyr::select(-Material_depr_score) %>% 
+  mutate_at(vars(-ECC_status), ~ as.numeric(scale(.)))
+sample_data
+```
+
+```{r}
+# Perform logistic regression
+# Here, let's assume "Age" and "Gender" are variables of interest in sample_data
+logit_model <- glm(ECC_status ~ ., data = sample_data, family = binomial())
+```
+
+
+```{r}
+# Extract coefficients and confidence intervals
+tidy_result <- broom::tidy(logit_model, conf.int = TRUE)
+tidy_result
+tidy_result_2 = tidy_result %>% 
+  filter(term != "(Intercept)")
+tidy_result_2
+```
+
+
+
+```{r}
+# Sort the data based on the reordered terms
+sorted_data <- tidy_result_2[order(reorder(tidy_result_2$term, tidy_result_2$estimate)), ]
+
+# Create a vector of colors based on sorted p-values
+label_colors <- ifelse(sorted_data$p.value < 0.05, "darkred", "black")
+
+# Create the forest plot
+plot <- ggplot(sorted_data, aes(x = estimate, xmin = conf.low, xmax = conf.high, y = reorder(term, estimate))) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_errorbarh(aes(color = p.value < 0.05), height = 0.1) +  # Add color here
+  geom_point(aes(color = p.value < 0.05), size = 3) +
+  scale_color_manual(values = c("TRUE" = "darkred", "FALSE" = "black")) +
+  xlab("Estimate values (Log Odds)") +
+  ylab("Socioeconomic and behavioral variables") +
+  ggtitle("Multiple Logistic Regression") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(color = label_colors))  # Apply the sorted label colors
+
+# Display the plot
+plot
+# ggsave(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/Multiple_log_reg_sampledata.png"),
+#         plot = plot, 
+#        width = 15, 
+#        height = 12, 
+#        units = "cm",
+#        dpi = 300)
+```
+
+
+
+
+
+
+# ```{r}
+# 
+# # 'ECC_status' is the binary outcome, and 'Age' is the confounder
+# 
+# # Multivariate logistic regression
+# multivariate_model <- glm(ECC_status ~ ., data = sample_data, family = binomial())
+# 
+# # Extracting multivariate results
+# multivariate_results <- broom::tidy(multivariate_model, conf.int = TRUE) %>%
+#   filter(term != "(Intercept)") %>%
+#   mutate(model = "Multivariate")
+# 
+# # Get the order of terms based on the multivariate model's estimates
+# multivariate_terms_order <- multivariate_results %>%
+#   arrange(estimate) %>%
+#   pull(term)
+# 
+# # Initialize an empty data frame for univariate results
+# univariate_results <- data.frame()
+# 
+# # Univariate logistic regressions adjusted for Age
+# predictor_vars <- setdiff(names(sample_data), c("ECC_status", "Age", "Sex", "Urban_status")) # Exclude ECC_status and Age
+# 
+# for (var in predictor_vars) {
+#   formula <- as.formula(paste("ECC_status ~", var, "+ Age", "+ Sex", "+ Urban_status"))
+#   univariate_model <- glm(formula, data = sample_data, family = binomial())
+#   
+#   # Extracting results
+#   univariate_result <- broom::tidy(univariate_model, conf.int = TRUE) %>%
+#     filter(term == var) %>%
+#     mutate(term = var, model = "Univariate + confounders")
+#     
+#   # Combine the univariate results
+#   univariate_results <- rbind(univariate_results, univariate_result)
+# }
+# 
+# # Combine univariate and multivariate results
+# combined_results <- rbind(univariate_results, multivariate_results)
+# 
+# combined_results
+# # Reorder the terms in the combined results based on multivariate estimates
+# combined_results$term <- factor(combined_results$term, levels = multivariate_terms_order)
+# 
+# # Create the plot
+# SODH_multi_univariate_forestplot <- 
+#   ggplot(combined_results, aes(x = estimate, xmin = conf.low, xmax = conf.high, y = term)) +
+#   geom_vline(xintercept = 0, linetype = "dashed") +
+#   geom_errorbarh(aes(color = p.value < 0.05), height = 0.1) +
+#   geom_point(aes(color = p.value < 0.05), size = 3) +
+#   facet_grid(. ~ model) +
+#   scale_color_manual(values = c("FALSE" = "black", "TRUE" = "darkred" ),
+#                    labels = c("Non-significant (p ≥ 0.05)", "Significant (p < 0.05)"), 
+#                    name = "Statistical Significance")  +
+#   labs(x = "Estimate (Log Odds)", y = "Host Variables") +
+#   theme_minimal() +
+#   theme(
+#     panel.border = element_rect(colour = "black", fill=NA, size=1), # Add border around each facet
+#     strip.background = element_rect(fill = "white", colour = "black", size = 1), # Customize the background of facet labels
+#     text = element_text(family = "Arial", colour = "black"), # Change font family to Arial
+#     axis.text.y = element_text(colour = "black", size = 12), # Change the color and size of y-axis labels
+#     axis.title.x = element_text(size = 15, colour = "black"), # Increase size of x-axis title
+#     axis.title.y = element_text(size = 15, colour = "black"), # Increase size of y-axis title
+#     legend.text = element_text(color = "black", size = 10), # Ensures legend text is black and size to 10
+#     legend.title = element_text(color = "black", size = 12), # Ensures legend title is black and size to 12
+#     strip.text = element_text(size = 11, colour = "black") # Increase size of facet label text
+# )
+# 
+# 
+# # Print the plot
+# print(SODH_multi_univariate_forestplot)
+# 
+# # # Save the plot to a file
+# # saveRDS( SODH_multi_univariate_forestplot,
+# #          here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/SODH_multi_univariate_forestplot.Rds"))
+# ```
+```{r}
+
+# 'ECC_status' is the binary outcome, and 'Age' is the confounder
+
+# Multivariate logistic regression
+multivariate_model <- glm(ECC_status ~ ., data = sample_data, family = binomial())
+
+# Extracting multivariate results
+multivariate_results <- broom::tidy(multivariate_model, conf.int = TRUE) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(model = "Multivariable")
+
+# Get the order of terms based on the multivariate model's estimates
+multivariate_terms_order <- multivariate_results %>%
+  arrange(estimate) %>%
+  pull(term)
+
+# Initialize an empty data frame for univariate results
+univariate_results <- data.frame()
+
+# Univariate logistic regressions adjusted for Age
+# predictor_vars <- setdiff(names(sample_data), c("ECC_status", "Age", "Sex", "Urban_status")) # Exclude ECC_status and Age
+predictor_vars <- setdiff(names(sample_data), c("")) # Exclude ECC_status and Age
+
+
+for (var in predictor_vars) {
+  # formula <- as.formula(paste("ECC_status ~", var, "+ Age", "+ Sex", "+ Urban_status"))
+  formula <- as.formula(paste("ECC_status ~", var))
+
+  univariate_model <- glm(formula, data = sample_data, family = binomial())
+  
+  # Extracting results
+  univariate_result <- broom::tidy(univariate_model, conf.int = TRUE) %>%
+    filter(term == var) %>%
+    mutate(term = var, model = "Univariate")
+    
+  # Combine the univariate results
+  univariate_results <- rbind(univariate_results, univariate_result)
+}
+
+# Combine univariate and multivariate results
+combined_results <- rbind(univariate_results, multivariate_results)
+
+combined_results
+# Reorder the terms in the combined results based on multivariate estimates
+combined_results$term <- factor(combined_results$term, levels = multivariate_terms_order)
+
+# Create the plot
+SODH_multi_univariate_forestplot <- 
+  ggplot(combined_results, aes(x = estimate, xmin = conf.low, xmax = conf.high, y = term)) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_errorbarh(aes(color = p.value < 0.05), height = 0.1) +
+  geom_point(aes(color = p.value < 0.05), size = 3) +
+  facet_grid(. ~ model) +
+  scale_color_manual(values = c("FALSE" = "black", "TRUE" = "darkred" ),
+                   labels = c("Non-significant (p ≥ 0.05)", "Significant (p < 0.05)"), 
+                   name = "Statistical Significance")  +
+  labs(x = "Estimate (Log Odds)", y = "Host Variables") +
+  scale_x_continuous(breaks = c(-3, -2, -1, 0, 1, 2, 3), limits = c(-3.5, 3.5)) +  # Set the x-axis breaks and limits  theme_minimal() +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(colour = "black", fill=NA, size=1), # Add border around each facet
+    strip.background = element_rect(fill = "white", colour = "black", size = 1), # Customize the background of facet labels
+    text = element_text(family = "Arial", colour = "black"), # Change font family to Arial
+    axis.text.y = element_text(colour = "black", size = 12), # Change the color and size of y-axis labels
+    axis.title.x = element_text(size = 15, colour = "black"), # Increase size of x-axis title
+    axis.title.y = element_text(size = 15, colour = "black"), # Increase size of y-axis title
+    legend.text = element_text(color = "black", size = 10), # Ensures legend text is black and size to 10
+    legend.title = element_text(color = "black", size = 12), # Ensures legend title is black and size to 12
+    strip.text = element_text(size = 11, colour = "black") # Increase size of facet label text
+)
+
+
+# Print the plot
+print(SODH_multi_univariate_forestplot)
+
+# # Save the plot to a file
+# saveRDS( SODH_multi_univariate_forestplot,
+#          here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/SODH_multi_univariate_forestplot.Rds"))
+```
+
+
+# combine the two plots
+```{r}
+layout <- "
+ABB
+"
+combined_ggcorrplot_forestplot_SODH =
+  ggcorrplot_SODH_2 + free(SODH_multi_univariate_forestplot) + 
+  plot_layout(design = layout) + # Arrange in a single row
+  plot_annotation(tag_levels = 'A')
+
+combined_ggcorrplot_forestplot_SODH
+
+# Save the combined plot to a file
+ggsave(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/combined_ggcorrplot_forestplot_SODH.png"),
+       plot = combined_ggcorrplot_forestplot_SODH, width = 16, height = 8, dpi = 600)
+ggsave(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/combined_ggcorrplot_forestplot_SODH.tiff"),
+       plot = combined_ggcorrplot_forestplot_SODH, width = 16, height = 8, dpi = 600)
+```
+
+
+# combine the two plots for ICAM_2024
+```{r}
+layout <- "
+ABB
+"
+combined_ggcorrplot_forestplot_SODH =
+  ggcorrplot_SODH + free(SODH_multi_univariate_forestplot) + 
+  plot_layout(design = layout) + # Arrange in a single row
+  plot_annotation(tag_levels = 'A')
+
+combined_ggcorrplot_forestplot_SODH
+
+# Save the combined plot to a file
+ggsave(here("Plaque538_Combined/Plaque538_Figures/Poster_figures/ICAM_2024/combined_ggcorrplot_forestplot_SODH.png"),
+       plot = combined_ggcorrplot_forestplot_SODH, width = 16, height = 10, dpi = 600)
+# ggsave(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/combined_ggcorrplot_forestplot_SODH.tiff"),
+#        plot = combined_ggcorrplot_forestplot_SODH, width = 14, height = 8, dpi = 600)
+```
+
+
+
+
+
+
+

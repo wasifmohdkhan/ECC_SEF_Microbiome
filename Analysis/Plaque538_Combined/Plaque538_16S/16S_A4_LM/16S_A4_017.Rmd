@@ -1,0 +1,71 @@
+---
+title: "patchwork"
+output: html_document
+date: "2024-02-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+#rm(list = ls())
+```
+
+```{r}
+library(here)
+library(patchwork)
+library(cowplot)
+
+library(ggplot2)
+```
+
+```{r}
+Maaslin2_Heatmap_Species_without_confounders <-
+  readRDS(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/Maaslin2_Heatmap_Species_without_confounders.rds"))
+
+Maaslin2_Heatmap_Genus_without_confounders <-
+  readRDS(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/Maaslin2_Heatmap_Genus_without_confounders.rds"))
+
+```
+
+```{r}
+
+layout <- "
+AAAAAACCCC
+AAAAAABBBB
+"
+
+# Combine the plots
+combined_Maaslin2_Species_Genus_heatmap <- free(Maaslin2_Heatmap_Species_without_confounders) + 
+  annotate("text", x = 1, y = 1, label = expression(paste("*", italic("q"), "-value < 0.01")), hjust = 1.2, vjust = 16, size = 6, colour = "black") +
+  annotate("text", x = 1, y = 1, label = expression(paste("**", italic("q"), "-value < 0.001")), hjust = 1.1, vjust = 18, size = 6, colour = "black") +
+  Maaslin2_Heatmap_Genus_without_confounders +
+  
+  guide_area()  +
+  plot_layout(guides = 'collect', design = layout) +
+  plot_annotation(tag_levels = "A") & 
+  theme(plot.tag = element_text(size = 30)) 
+
+# Apply a global theme with larger tag text
+theme_set(theme_light() )
+
+ggsave(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/combined_Maaslin2_Species_Genus_heatmap.png"), 
+       combined_Maaslin2_Species_Genus_heatmap,
+       width = 55, height = 64, units = "cm", dpi = 600)
+ggsave(here("Plaque538_Combined/Plaque538_16S/Plaque538_16S_A4_LM/combined_Maaslin2_Species_Genus_heatmap.tiff"), 
+       combined_Maaslin2_Species_Genus_heatmap,
+       width = 55, height = 64, units = "cm", dpi = 600)
+```
+
+```{r}
+
+
+
+```
+
+```{r}
+
+```
+
